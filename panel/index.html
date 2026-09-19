@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>meowmarism PROFESSIONAL</title>
+<link rel="icon" type="image/svg+xml" href="/core/brand/logo.svg">
+<link rel="stylesheet" href="/core/tokens/tokens.css">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font-ui)}
+button,input,select{font:inherit;color:inherit}
+h1{margin:0;font-size:20px;letter-spacing:-.02em}
+.hint{color:var(--muted);font-size:13px}
+.hidden{display:none!important}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:var(--radius);padding:7px 13px;cursor:pointer}
+.btn:hover{border-color:var(--muted2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#2a0a1e;font-weight:650}
+.btn.danger{color:var(--red)}
+.btn:disabled{opacity:.5;cursor:default}
+.input{background:var(--bg);border:1px solid var(--line2);border-radius:var(--radius);padding:7px 10px;width:100%}
+.input:focus{outline:none;border-color:var(--accent)}
+label.f{display:block;margin:0 0 12px}
+label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
+
+#login{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px}
+#login form{width:min(360px,100%);padding:26px}
+#login img{width:34px;margin-bottom:14px}
+#login .err{color:var(--red);min-height:20px;margin:0 0 10px;font-size:13px}
+
+#app{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);height:100%}
+.rail{background:var(--sidebar);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:10px}
+.rail img{width:26px}
+.rail .grow{flex:1}
+main{overflow:auto;padding:26px 30px}
+.top{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.top .sp{flex:1}
+.sub{margin:0 0 20px;color:var(--muted)}
+.banner{border:1px solid var(--yellow);background:rgba(212,168,79,.1);border-radius:var(--radius);padding:10px 14px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{color:var(--muted2);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:var(--panel2)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--muted2)}
+.dot.on{background:var(--green)}.dot.mid{background:var(--yellow)}.dot.err{background:var(--red)}
+.empty{padding:34px;text-align:center;color:var(--muted)}
+.tabs{display:flex;gap:4px;margin:16px 0 14px;border-bottom:1px solid var(--line)}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 14px;color:var(--muted);cursor:pointer}
+.tabs button.on{color:var(--text);border-color:var(--accent)}
+#console{background:#0c0d0f;border:1px solid var(--line);border-radius:var(--radius);height:52vh;overflow:auto;padding:12px;font:12.5px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+.cmd{display:flex;gap:8px;margin-top:10px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.stat{padding:14px 16px}.stat b{display:block;font-size:20px}.stat span{color:var(--muted);font-size:12px}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal .box{width:min(440px,100%);background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius-modal);padding:22px}
+.modal h2{margin:0 0 10px;font-size:17px}
+.modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--radius);padding:10px 16px;z-index:60}
+</style>
+</head>
+<body>
+
+<div id="login" class="hidden">
+  <form class="card" id="loginForm">
+    <img src="/core/brand/logo.svg" alt="">
+    <h1>meowmarism PROFESSIONAL</h1>
+    <p class="hint" style="margin:4px 0 18px">Sign in to continue.</p>
+    <label class="f"><span>Username</span><input class="input" id="lu" autocomplete="username" autofocus></label>
+    <label class="f"><span>Password</span><input class="input" id="lp" type="password" autocomplete="current-password"></label>
+    <p class="err" id="lerr"></p>
+    <button class="btn primary" style="width:100%">Sign in</button>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <nav class="rail"><img src="/core/brand/logo.svg" alt=""><div class="grow"></div><button class="btn" id="logout" title="Sign out">&#x2192;</button></nav>
+  <main>
+    <div id="dockerBanner" class="banner hidden"></div>
+
+    <section id="listView">
+      <div class="top"><h1>Instances</h1><div class="sp"></div><button class="btn primary" id="newBtn">New instance</button></div>
+      <p class="sub">Every instance runs in its own Docker container with hard CPU and memory limits.</p>
+      <div class="card"><table>
+        <thead><tr><th>Name</th><th>Server</th><th>Status</th><th>CPU</th><th>Memory</th><th>Port</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table><div id="empty" class="empty hidden">No instances yet.</div></div>
+    </section>
+
+    <section id="detailView" class="hidden">
+      <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
+        <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
+      <p class="sub" id="dSub"></p>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+
+      <div id="tab-console">
+        <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
+        <div id="console"></div>
+        <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
+      </div>
+      <div id="tab-limits" class="hidden">
+        <form class="card" style="padding:20px;max-width:420px" id="limitForm">
+          <label class="f"><span>Memory (MB)</span><input class="input" id="lMem" type="number" min="512" step="256"></label>
+          <label class="f"><span>CPUs</span><input class="input" id="lCpu" type="number" min="0.25" step="0.25"></label>
+          <label class="f"><span>Port</span><input class="input" id="lPort" type="number" min="1024" max="65535"></label>
+          <p class="hint">Saving recreates the container. A running server is stopped and started again. World and settings are kept.</p>
+          <button class="btn primary">Save</button>
+        </form>
+      </div>
+      <div id="tab-danger" class="hidden"><div class="card" style="padding:20px;max-width:420px"><p class="hint" style="margin-top:0">Removes the container. You can keep or delete the world and settings.</p><button class="btn danger" id="delBtn">Delete instance...</button></div></div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let system = null, current = null, listTimer = null, logTimer = null;
+
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3500); }
+function modal(title, bodyHtml, buttons) {
+  return new Promise((resolve) => {
+    const m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = `<div class="box"><h2></h2><div class="mb"></div><div class="row"></div></div>`;
+    m.querySelector('h2').textContent = title;
+    if (typeof bodyHtml === 'string') m.querySelector('.mb').innerHTML = bodyHtml; else m.querySelector('.mb').appendChild(bodyHtml);
+    const done = (v) => { m.remove(); resolve(v); };
+    for (const b of buttons) {
+      const el = document.createElement('button'); el.className = 'btn' + (b.primary ? ' primary' : '') + (b.danger ? ' danger' : ''); el.textContent = b.label;
+      el.onclick = () => done(b.value === undefined ? true : (typeof b.value === 'function' ? b.value(m) : b.value));
+      m.querySelector('.row').appendChild(el);
+    }
+    m.addEventListener('click', (e) => { if (e.target === m) done(null); });
+    document.body.appendChild(m);
+    const first = m.querySelector('input'); if (first) first.focus();
+  });
+}
+const confirmBox = (title, text, label) => {
+  const p = document.createElement('p'); p.className = 'hint'; p.style.margin = '0'; p.textContent = text;
+  return modal(title, p, [{ label: 'Cancel', value: false }, { label, value: true, primary: true }]);
+};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { method: opts.method || 'GET', headers: opts.body ? { 'Content-Type': 'application/json' } : undefined, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== '/api/login') { showLogin(); throw new Error('signed out'); }
+  if (!r.ok) throw new Error(data.error || 'request failed');
+  return data;
+}
+
+function showLogin() { clearInterval(listTimer); clearInterval(logTimer); $('app').classList.add('hidden'); $('login').classList.remove('hidden'); }
+async function boot() {
+  try { system = await api('/api/system'); } catch (_) { return showLogin(); }
+  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
+  if (!system.docker.ok) { $('dockerBanner').textContent = 'Docker is not reachable: ' + system.docker.error; $('dockerBanner').classList.remove('hidden'); }
+  showList();
+}
+
+$('loginForm').onsubmit = async (e) => {
+  e.preventDefault(); $('lerr').textContent = '';
+  try { await api('/api/login', { method: 'POST', body: { username: $('lu').value, password: $('lp').value } }); $('lp').value = ''; boot(); }
+  catch (err) { $('lerr').textContent = err.message; }
+};
+$('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); };
+
+function stateOf(i) {
+  if (i.state === 'running') return i.health === 'healthy' ? ['on', 'Running'] : ['mid', 'Starting'];
+  if (i.state === 'missing') return ['err', 'Container missing'];
+  if (i.state === 'created' || i.state === 'exited') return ['', 'Stopped'];
+  return ['mid', i.state];
+}
+async function loadList() {
+  const list = await api('/api/instances?stats=1');
+  $('rows').innerHTML = '';
+  for (const i of list) {
+    const [cls, label] = stateOf(i);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td></td><td>${i.type.toLowerCase()} ${i.version}</td><td><span class="dot ${cls}"></span>${label}</td><td>${i.cpuUsage == null ? '-' : i.cpuUsage.toFixed(0) + '%'} / ${i.cpus}</td><td>${i.memUsage ? i.memUsage.split('/')[0].trim() : '-'} / ${i.memoryMB + 768} MB</td><td>${i.port}</td>`;
+    tr.firstChild.textContent = i.name;
+    tr.onclick = () => showDetail(i.id);
+    $('rows').appendChild(tr);
+  }
+  $('empty').classList.toggle('hidden', list.length > 0);
+  return list;
+}
+function showList() {
+  clearInterval(logTimer); current = null;
+  $('detailView').classList.add('hidden'); $('listView').classList.remove('hidden');
+  loadList().catch(() => {}); clearInterval(listTimer); listTimer = setInterval(() => loadList().catch(() => {}), 5000);
+}
+$('back').onclick = showList;
+
+$('newBtn').onclick = async () => {
+  const box = document.createElement('div');
+  box.innerHTML = `<label class="f"><span>Name</span><input class="input" id="nName" placeholder="survival"></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label class="f"><span>Server</span><select class="input" id="nType">${system.types.map((t) => `<option>${t}</option>`).join('')}</select></label>
+    <label class="f"><span>Version</span><input class="input" id="nVer" value="1.21.1"></label>
+    <label class="f"><span>Memory (MB)</span><input class="input" id="nMem" type="number" value="2048" min="512" step="256"></label>
+    <label class="f"><span>CPUs</span><input class="input" id="nCpu" type="number" value="2" min="0.25" step="0.25"></label></div>
+    <label class="f"><span>Port</span><input class="input" id="nPort" type="number" value="25565"></label><p class="hint" id="nErr" style="color:var(--red)"></p>`;
+  const spec = await modal('New instance', box, [{ label: 'Cancel', value: null }, { label: 'Create', primary: true, value: () => ({ name: $('nName').value, type: $('nType').value, version: $('nVer').value, memoryMB: Number($('nMem').value), cpus: Number($('nCpu').value), port: Number($('nPort').value) }) }]);
+  if (!spec) return;
+  toast('Creating, the first start downloads the image...');
+  try { await api('/api/instances', { method: 'POST', body: spec }); toast('Instance created'); loadList(); } catch (err) { toast(err.message); }
+};
+
+async function showDetail(id) {
+  clearInterval(listTimer);
+  const list = await loadList().catch(() => []);
+  current = list.find((i) => i.id === id); if (!current) return showList();
+  $('listView').classList.add('hidden'); $('detailView').classList.remove('hidden');
+  paintDetail(current); setTab('console'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
+}
+function paintDetail(i) {
+  const [, label] = stateOf(i);
+  $('dName').textContent = i.name; $('dState').textContent = label; $('dSub').textContent = `${i.type.toLowerCase()} ${i.version} on port ${i.port}`;
+  $('sCpu').textContent = i.cpuUsage == null ? '-' : i.cpuUsage.toFixed(0) + '%'; $('sCpuLim').textContent = i.cpus;
+  $('sMem').textContent = i.memUsage ? i.memUsage.split('/')[0].trim() : '-'; $('sMemLim').textContent = (i.memoryMB + 768) + ' MB incl. overhead';
+  $('lMem').value = i.memoryMB; $('lCpu').value = i.cpus; $('lPort').value = i.port;
+}
+let lastPaint = '';
+async function pollDetail() {
+  if (!current) return;
+  try {
+    const [list, l] = await Promise.all([api('/api/instances?stats=1'), api(`/api/instances/${current.id}/logs?tail=400`)]);
+    const i = list.find((x) => x.id === current.id); if (!i) return showList();
+    if (!$('lMem').matches(':focus') && !$('lCpu').matches(':focus') && !$('lPort').matches(':focus')) paintDetail(i); else { $('dState').textContent = stateOf(i)[1]; }
+    current = i;
+    if (l.logs !== lastPaint) { const c = $('console'); const atEnd = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; c.textContent = l.logs; if (atEnd) c.scrollTop = c.scrollHeight; lastPaint = l.logs; }
+  } catch (_) {}
+}
+function setTab(t) {
+  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
+  for (const n of ['console', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
+}
+for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.tab);
+
+async function power(action, label) {
+  if ((action === 'stop' || action === 'restart' || action === 'kill') && !(await confirmBox(label + ' ' + current.name + '?', action === 'kill' ? 'The server is killed without saving. Recent changes to the world can be lost.' : 'The server saves the world and shuts down.', label))) return;
+  try { toast(label + '...'); await api(`/api/instances/${current.id}/${action}`, { method: 'POST' }); pollDetail(); } catch (err) { toast(err.message); }
+}
+$('bStart').onclick = () => power('start', 'Start'); $('bStop').onclick = () => power('stop', 'Stop');
+$('bRestart').onclick = () => power('restart', 'Restart'); $('bKill').onclick = () => power('kill', 'Kill');
+
+$('cmdForm').onsubmit = async (e) => {
+  e.preventDefault(); const cmd = $('cmdIn').value.trim(); if (!cmd) return; $('cmdIn').value = '';
+  try { const r = await api(`/api/instances/${current.id}/command`, { method: 'POST', body: { command: cmd } }); if (r.output) toast(r.output.slice(0, 200)); pollDetail(); } catch (err) { toast(err.message); }
+};
+$('limitForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (!(await confirmBox('Save limits?', 'The container is recreated. A running server is restarted.', 'Save'))) return;
+  try { toast('Applying...'); await api(`/api/instances/${current.id}/limits`, { method: 'POST', body: { memoryMB: Number($('lMem').value), cpus: Number($('lCpu').value), port: Number($('lPort').value) } }); toast('Limits applied'); pollDetail(); } catch (err) { toast(err.message); }
+};
+$('delBtn').onclick = async () => {
+  const box = document.createElement('div');
+  box.innerHTML = `<p class="hint" style="margin-top:0">Removes the container of <b></b>.</p><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="delData"> Also delete the world and settings</label>`;
+  box.querySelector('b').textContent = current.name;
+  const r = await modal('Delete instance?', box, [{ label: 'Cancel', value: null }, { label: 'Delete', danger: true, value: () => ({ deleteData: $('delData').checked }) }]);
+  if (!r) return;
+  try { await api(`/api/instances/${current.id}`, { method: 'DELETE', body: r }); toast('Deleted'); showList(); } catch (err) { toast(err.message); }
+};
+
+boot();
+</script>
+</body>
+</html>
