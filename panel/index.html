@@ -6,6 +6,8 @@
 <title>meowmarism PROFESSIONAL</title>
 <link rel="icon" type="image/svg+xml" href="/core/brand/logo.svg">
 <link rel="stylesheet" href="/core/tokens/tokens.css">
+<link rel="stylesheet" href="/core/ui/modrinth-ui.css">
+<link rel="stylesheet" href="/core/ui/files-ui.css">
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font-ui)}
@@ -55,10 +57,27 @@ tbody tr:hover{background:var(--panel2)}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .stat{padding:14px 16px}.stat b{display:block;font-size:20px}.stat span{color:var(--muted);font-size:12px}
 
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
-.modal .box{width:min(440px,100%);background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius-modal);padding:22px}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal-back.open{display:flex}
+.modal{width:min(440px,100%);background:var(--panel);border:1px solid var(--line2);border-radius:var(--radius-modal);padding:22px}
 .modal h2{margin:0 0 10px;font-size:17px}
 .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.settings-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.settings-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.settings-status{color:var(--muted);font-size:12.5px}
+.card-title{font-weight:650}
+.card-head{padding:14px 16px 0}
+.card-body{padding:14px 16px}
+.compact-input,.compact-select{background:var(--bg);border:1px solid var(--line2);border-radius:var(--radius);padding:6px 10px;height:32px}
+.compact-input:focus,.compact-select:focus{outline:none;border-color:var(--accent)}
+.table-wrap{overflow-x:auto}
+.data-table{width:100%}
+.tag{display:inline-block;padding:1px 8px;border:1px solid var(--line2);border-radius:999px;font-size:11px;color:var(--muted)}
+.sub-tabs{display:flex;gap:6px;margin-bottom:14px}
+.empty-state{padding:28px;text-align:center;color:var(--muted)}
+a.btn{color:var(--text);text-decoration:none;display:inline-block}
+#filesBreadcrumb a{color:var(--accent);text-decoration:none}
+.mr-md a{color:var(--accent)}
 .toast{position:fixed;right:20px;bottom:20px;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--radius);padding:10px 16px;z-index:60}
 </style>
 </head>
@@ -94,12 +113,23 @@ tbody tr:hover{background:var(--panel2)}
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
-      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
 
       <div id="tab-console">
         <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
         <div id="console"></div>
         <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
+      </div>
+      <div id="tab-files" class="hidden"><div id="filesRoot"></div></div>
+      <div id="tab-mods" class="hidden">
+        <div class="sub-tabs"><button class="btn primary" data-mods-tab="installed">Installed</button><button class="btn" data-mods-tab="browse">Browse Modrinth</button><button class="btn" data-mods-tab="updates">Updates <span class="tag" id="modsUpdateCount" style="display:none">0</span></button></div>
+        <div id="modsInstalled">
+          <div class="settings-toolbar"><div><div class="card-title">Installed</div><div class="settings-status" id="modsStatus"></div></div></div>
+          <div class="card"><div class="table-wrap"><table class="data-table"><thead><tr><th>File</th><th>Size</th><th>Status</th><th></th></tr></thead><tbody id="modRows"></tbody></table></div><div id="modEmpty" class="empty hidden">Nothing installed yet.</div></div>
+          <p class="hint" style="margin-top:10px">Changes take effect after a restart of the server.</p>
+        </div>
+        <div id="modsBrowse" style="display:none"></div>
+        <div id="modsUpdates" style="display:none"></div>
       </div>
       <div id="tab-backups" class="hidden">
         <div class="top" style="margin-bottom:10px"><button class="btn primary" id="bkNow">Back up now</button><span class="hint" id="bkState"></span></div>
@@ -125,15 +155,19 @@ tbody tr:hover{background:var(--panel2)}
   </main>
 </div>
 
+<script src="/core/ui/modrinth-ui.js"></script>
+<script src="/core/ui/files-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const tr = (text, vars) => (vars ? String(text).replace(/\{(\w+)\}/g, (_, k) => vars[k]) : text);
 let system = null, current = null, listTimer = null, logTimer = null;
 
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3500); }
 function modal(title, bodyHtml, buttons) {
   return new Promise((resolve) => {
-    const m = document.createElement('div'); m.className = 'modal';
-    m.innerHTML = `<div class="box"><h2></h2><div class="mb"></div><div class="row"></div></div>`;
+    const m = document.createElement('div'); m.className = 'modal-back open';
+    m.innerHTML = `<div class="modal"><h2></h2><div class="mb"></div><div class="row"></div></div>`;
     m.querySelector('h2').textContent = title;
     if (typeof bodyHtml === 'string') m.querySelector('.mb').innerHTML = bodyHtml; else m.querySelector('.mb').appendChild(bodyHtml);
     const done = (v) => { m.remove(); resolve(v); };
@@ -221,7 +255,7 @@ async function showDetail(id) {
   const list = await loadList().catch(() => []);
   current = list.find((i) => i.id === id); if (!current) return showList();
   $('listView').classList.add('hidden'); $('detailView').classList.remove('hidden');
-  paintDetail(current); setTab('console'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
+  MR.reset(); paintDetail(current); setTab('console'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
 }
 function paintDetail(i) {
   const [, label] = stateOf(i);
@@ -243,9 +277,11 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'files', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
   if (t === 'backups') loadBackups();
+  if (t === 'mods') showModsTab('installed');
+  if (t === 'files') FILES.load('.');
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.tab);
 
@@ -316,6 +352,56 @@ $('bkForm').onsubmit = async (e) => {
   e.preventDefault();
   try { await api(`/api/instances/${current.id}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('bkHours').value), maxBackups: Number($('bkMax').value), backupMinFreeGB: Number($('bkFree').value) } }); toast('Backup settings saved'); } catch (err) { toast(err.message); }
 };
+
+// --- files ---
+const FILES = MeowFiles.mount({
+  el: $('filesRoot'),
+  base: () => `/api/instances/${current.id}/files`,
+  rootName: () => current.name,
+  t: tr, esc, toast,
+  confirm: (title, message, label) => confirmBox(title, message, label),
+  isVisible: () => !$('tab-files').classList.contains('hidden'),
+});
+
+// --- mods ---
+const MR = MeowModrinth.mount({
+  browseEl: $('modsBrowse'),
+  updatesEl: $('modsUpdates'),
+  base: () => `/api/instances/${current.id}/modrinth`,
+  t: tr, esc, toast,
+  onInstalled: () => loadMods(),
+  onUpdateCount: (n) => { $('modsUpdateCount').style.display = n ? '' : 'none'; $('modsUpdateCount').textContent = n; },
+});
+function showModsTab(tab) {
+  document.querySelectorAll('[data-mods-tab]').forEach((b) => b.classList.toggle('primary', b.dataset.modsTab === tab));
+  $('modsInstalled').style.display = tab === 'installed' ? '' : 'none';
+  $('modsBrowse').style.display = tab === 'browse' ? '' : 'none';
+  $('modsUpdates').style.display = tab === 'updates' ? '' : 'none';
+  if (tab === 'installed') loadMods();
+  if (tab === 'browse') MR.search(true);
+  if (tab === 'updates') MR.loadUpdates();
+}
+for (const b of document.querySelectorAll('[data-mods-tab]')) b.onclick = () => showModsTab(b.dataset.modsTab);
+async function loadMods() {
+  if (!current) return;
+  try {
+    const d = await api(`/api/instances/${current.id}/mods`);
+    const rows = [...d.enabled.map((m) => ({ ...m, on: true })), ...d.disabled.map((m) => ({ ...m, on: false }))];
+    $('modRows').innerHTML = '';
+    for (const m of rows) {
+      const tr2 = document.createElement('tr'); tr2.style.cursor = 'default';
+      tr2.innerHTML = '<td></td><td></td><td></td><td style="text-align:right"></td>';
+      tr2.children[0].textContent = m.name; tr2.children[1].textContent = m.sizeMB + ' MB';
+      tr2.children[2].innerHTML = `<span class="tag">${m.on ? 'enabled' : 'disabled'}</span>`;
+      const btn = document.createElement('button'); btn.className = 'btn'; btn.textContent = m.on ? 'Disable' : 'Enable';
+      btn.onclick = async () => { btn.disabled = true; try { await api(`/api/instances/${current.id}/mods/toggle`, { method: 'POST', body: { name: m.name, enable: !m.on } }); } catch (err) { toast(err.message); } loadMods(); };
+      tr2.children[3].appendChild(btn);
+      $('modRows').appendChild(tr2);
+    }
+    $('modEmpty').classList.toggle('hidden', rows.length > 0);
+    $('modsStatus').textContent = rows.length ? `${d.enabled.length} enabled, ${d.disabled.length} disabled` : '';
+  } catch (_) {}
+}
 
 boot();
 </script>

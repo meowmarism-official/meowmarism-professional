@@ -7,6 +7,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { docker, stateCache, refreshStates, startPolling, runtimeFor, forget: forgetRuntime } = require('./runtime');
 const backups = require('./lib/backups');
+const { createModrinth, fetchImage } = require('./core/modules/modrinth');
+const { createMods } = require('./core/modules/mods');
+const { createFiles } = require('./core/modules/files');
 const { INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
@@ -20,19 +23,19 @@ const HOST_CPUS = os.cpus().length;
 
 const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'],
-  '/core/tokens/tokens.css': ['core/tokens/tokens.css', 'text/css; charset=utf-8'],
-  '/core/brand/logo.svg': ['core/brand/logo.svg', 'image/svg+xml'],
 };
+const CORE_FILE = /^\/core\/(tokens\/tokens\.css|brand\/[\w.-]+\.(?:svg|png)|ui\/[\w.-]+\.(?:js|css))$/;
+const CORE_TYPES = { css: 'text/css; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', js: 'application/javascript; charset=utf-8' };
 
 const json = (res, status, data) => {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(data));
 };
 
-function readBody(req) {
+function readBody(req, limit = 16 * 1024) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', (c) => { body += c; if (body.length > 16 * 1024) { reject(new Error('body too large')); req.destroy(); } });
+    req.on('data', (c) => { body += c; if (body.length > limit) { reject(new Error('body too large')); req.destroy(); } });
     req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch (_) { reject(new Error('bad json')); } });
     req.on('error', reject);
   });
@@ -63,6 +66,24 @@ const portFree = (port) => new Promise((resolve) => {
 });
 
 const findInstance = (id) => instances.list().find((i) => i.id === id);
+
+// Files, mods and Modrinth for one instance, built on the shared modules from core.
+const toolCache = new Map();
+function toolsFor(inst) {
+  let t = toolCache.get(inst.id);
+  if (!t) {
+    const kindDir = ['PAPER', 'PURPUR'].includes(inst.type) ? 'plugins' : 'mods';
+    const modsDir = path.join(inst.dir, kindDir);
+    const disabledDir = path.join(inst.dir, 'disabled_mods');
+    t = {
+      files: createFiles({ root: inst.dir }),
+      mods: createMods({ modsDir, disabledDir }),
+      modrinth: createModrinth({ modsDir, disabledDir, oldDir: path.join(inst.dir, `${kindDir}-old`), datapackDir: path.join(inst.dir, 'world', 'datapacks'), mcVersion: inst.version, loader: inst.type.toLowerCase() }),
+    };
+    toolCache.set(inst.id, t);
+  }
+  return t;
+}
 const publicInstance = (i, st, stat) => ({
   id: i.id, name: i.name, type: i.type, version: i.version, port: i.port, memoryMB: i.memoryMB, cpus: i.cpus,
   state: st ? st.state : 'missing', health: st ? st.health : 'none',
@@ -155,6 +176,7 @@ async function handleApi(req, res, url) {
     await rt.removeContainer();
     forgetRuntime(inst.id);
     backups.forget(inst.id);
+    toolCache.delete(inst.id);
     instances.save(instances.list().filter((i) => i.id !== inst.id));
     if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) fs.rmSync(inst.dir, { recursive: true, force: true });
     return json(res, 200, { ok: true });
@@ -190,6 +212,76 @@ async function handleApi(req, res, url) {
     else if (action === 'kill') await rt.killAsync();
     else { await rt.stopAsync(); await rt.startAsync(); }
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'mods') {
+    const tl = toolsFor(inst);
+    if (!m[3] && method === 'GET') return json(res, 200, tl.mods.list());
+    if (m[3] === 'toggle' && method === 'POST') {
+      const data = await readBody(req);
+      try { tl.mods.toggle(data.name, !!data.enable); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  if (action === 'modrinth') {
+    const mr = toolsFor(inst).modrinth;
+    const fail = (err) => json(res, 502, { ok: false, error: err.message || 'Modrinth request failed' });
+    const sp = url.searchParams;
+    try {
+      if (m[3] === 'info' && method === 'GET') {
+        return json(res, 200, { supported: mr.supported(), kinds: { mod: mr.supported('mod'), datapack: mr.supported('datapack'), resourcepack: mr.supported('resourcepack'), shader: mr.supported('shader'), modpack: mr.supported('modpack') }, loader: inst.type.toLowerCase(), mcVersion: inst.version, kind: mr.type });
+      }
+      if (m[3] === 'search' && method === 'GET') return json(res, 200, await mr.search(sp.get('q') || '', sp.get('offset'), sp.get('sort'), sp.get('kind')));
+      if (m[3] === 'project' && method === 'GET') return json(res, 200, await mr.project(String(sp.get('id') || '')));
+      if (m[3] === 'versions' && method === 'GET') return json(res, 200, { versions: await mr.projectVersions(String(sp.get('project') || ''), sp.get('kind')) });
+      if (m[3] === 'updates' && method === 'GET') return json(res, 200, await mr.updates());
+      if (m[3] === 'img' && method === 'GET') {
+        try {
+          const { type, buf } = await fetchImage(String(sp.get('u') || ''));
+          res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff', 'Content-Length': buf.length });
+          return res.end(buf);
+        } catch (_) { res.writeHead(404); return res.end(); }
+      }
+      if ((m[3] === 'install' || m[3] === 'update') && method === 'POST') {
+        const data = await readBody(req);
+        const installed = m[3] === 'install'
+          ? await mr.install(String(data.projectId || ''), data.versionId ? String(data.versionId) : null, data.kind ? String(data.kind) : null)
+          : await mr.applyUpdates(data.all ? 'all' : (Array.isArray(data.files) ? data.files.map(String) : []));
+        return json(res, 200, { ok: true, installed });
+      }
+    } catch (err) { return fail(err); }
+  }
+
+  if (action === 'files') {
+    const fl = toolsFor(inst).files;
+    const rel = url.searchParams.get('path') || '.';
+    const bad = (err) => json(res, err.status || 500, { ok: false, error: err.message });
+    try {
+      if (!m[3] && method === 'GET') return json(res, 200, fl.list(rel));
+      if (m[3] === 'content' && method === 'GET') return json(res, 200, fl.read(rel));
+      if (m[3] === 'download' && method === 'GET') {
+        const info = fl.fileInfo(rel);
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${info.name.replace(/[\r\n"]/g, '_')}"`, 'Content-Length': info.size });
+        return fs.createReadStream(info.resolved).pipe(res);
+      }
+      if (m[3] === 'save' && method === 'POST') {
+        const data = await readBody(req, fl.MAX_EDIT_BYTES * 2);
+        return json(res, 200, { ok: true, ...fl.write(String(data.path || ''), data.text, { expectedMtime: Number(data.mtime) }) });
+      }
+      if (m[3] === 'upload' && method === 'POST') {
+        const dest = fl.uploadTarget(rel, url.searchParams.get('name') || '');
+        let size = 0;
+        const out = fs.createWriteStream(dest);
+        req.on('data', (chunk) => { size += chunk.length; if (size > fl.MAX_UPLOAD_BYTES) { req.destroy(); out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} } });
+        req.on('error', () => { out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} });
+        req.pipe(out);
+        out.on('finish', () => json(res, 200, { ok: true, name: url.searchParams.get('name'), sizeMB: +(size / 1024 / 1024).toFixed(2) }));
+        out.on('error', (err) => json(res, 500, { ok: false, error: err.message }));
+        return;
+      }
+      if (!m[3] && method === 'DELETE') { fl.remove(rel); return json(res, 200, { ok: true }); }
+    } catch (err) { return bad(err instanceof SyntaxError ? Object.assign(err, { status: 400, message: 'bad json' }) : err); }
   }
 
   if (action === 'backups') {
@@ -242,6 +334,13 @@ const server = http.createServer(async (req, res) => {
         if (origin && new URL(origin).host !== req.headers.host) return json(res, 403, { error: 'cross-origin request refused' });
       }
       return await handleApi(req, res, url);
+    }
+    const core = req.method === 'GET' && CORE_FILE.exec(url.pathname);
+    if (core) {
+      const file = path.join(__dirname, 'core', core[1]);
+      if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': CORE_TYPES[path.extname(file).slice(1)], 'Cache-Control': 'no-cache' });
+      return fs.createReadStream(file).pipe(res);
     }
     const entry = STATIC[url.pathname];
     if (req.method === 'GET' && entry) {

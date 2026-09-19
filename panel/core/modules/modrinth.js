@@ -8,6 +8,9 @@ const API = 'https://api.modrinth.com/v2';
 const UA = 'meowmarism (https://github.com/meowmarism-official/meowmarism-lite)';
 const MAX_JAR_BYTES = 300 * 1024 * 1024;
 const SAFE_JAR = /^[\w.+\-()[\] ]+\.jar$/;
+const SAFE_ZIP = /^(?!\.)[^\/:*?"<>|\x00-\x1f]{1,150}\.zip$/;
+const KINDS = ['mod', 'datapack', 'resourcepack', 'shader', 'modpack'];
+const kindOf = (k) => (KINDS.includes(k) ? k : 'mod');
 
 function loadersFor(loader) {
   if (loader === 'purpur') return ['purpur', 'paper', 'spigot', 'bukkit'];
@@ -71,6 +74,39 @@ function downloadVerified(url, dest, sha512, size) {
   });
 }
 
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const imageCache = new Map();
+
+// Fetches an image from Modrinth's CDN so the browser never talks to a third party. Small in-memory cache.
+function fetchImage(rawUrl) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try { u = new URL(rawUrl); } catch (_) { reject(new Error('bad url')); return; }
+    if (u.protocol !== 'https:' || u.hostname !== 'cdn.modrinth.com') { reject(new Error('unexpected host')); return; }
+    const hit = imageCache.get(u.href);
+    if (hit) { imageCache.delete(u.href); imageCache.set(u.href, hit); resolve(hit); return; }
+    https.get(u.href, { headers: { 'User-Agent': UA }, timeout: 15000 }, (res) => {
+      const type = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (res.statusCode !== 200 || !IMAGE_TYPES.has(type)) { res.resume(); reject(new Error('not an image')); return; }
+      const chunks = [];
+      let bytes = 0;
+      res.on('data', (c) => {
+        bytes += c.length;
+        if (bytes > MAX_IMAGE_BYTES) { res.destroy(new Error('image too large')); return; }
+        chunks.push(c);
+      });
+      res.on('end', () => {
+        const entry = { type, buf: Buffer.concat(chunks) };
+        imageCache.set(u.href, entry);
+        while (imageCache.size > 150) imageCache.delete(imageCache.keys().next().value);
+        resolve(entry);
+      });
+      res.on('error', reject);
+    }).on('error', reject).on('timeout', function () { this.destroy(new Error('image timed out')); });
+  });
+}
+
 function sha1File(file) {
   return new Promise((resolve, reject) => {
     const h = crypto.createHash('sha1');
@@ -78,14 +114,21 @@ function sha1File(file) {
   });
 }
 
-function createModrinth({ modsDir, disabledDir, oldDir, mcVersion, loader }) {
+function createModrinth({ modsDir, disabledDir, oldDir, datapackDir, mcVersion, loader }) {
   const loaders = loadersFor(loader);
   const type = projectTypeFor(loader);
   const hashCache = new Map();
   let identCache = null;
 
-  const supported = () => loaders.length > 0 && !!mcVersion;
-  const vfilter = () => `loaders=${encodeURIComponent(JSON.stringify(loaders))}&game_versions=${encodeURIComponent(JSON.stringify([mcVersion]))}`;
+  const supported = (kind) => !!mcVersion && (kindOf(kind) !== 'mod' || loaders.length > 0);
+  const installable = (kind) => kindOf(kind) === 'mod' || (kindOf(kind) === 'datapack' && !!datapackDir);
+  const vfilter = (kind) => {
+    const k = kindOf(kind);
+    const games = `game_versions=${encodeURIComponent(JSON.stringify([mcVersion]))}`;
+    if (k === 'mod') return `loaders=${encodeURIComponent(JSON.stringify(loaders))}&${games}`;
+    if (k === 'datapack') return `loaders=${encodeURIComponent(JSON.stringify(['datapack']))}&${games}`;
+    return games;
+  };
 
   function listJars(dir) {
     try { return fs.readdirSync(dir).filter((f) => f.endsWith('.jar')); } catch (_) { return []; }
@@ -110,21 +153,76 @@ function createModrinth({ modsDir, disabledDir, oldDir, mcVersion, loader }) {
     return value;
   }
 
-  async function search(query, offset) {
-    if (!supported()) return { hits: [], total: 0 };
-    const facets = [[`project_type:${type}`], [`versions:${mcVersion}`], loaders.map((l) => `categories:${l}`)];
-    const url = `${API}/search?query=${encodeURIComponent(query || '')}&limit=20&offset=${Math.max(0, Number(offset) || 0)}&facets=${encodeURIComponent(JSON.stringify(facets))}`;
+  const SORTS = new Set(['relevance', 'downloads', 'follows', 'newest', 'updated']);
+
+  async function identifyDatapacks() {
+    if (!datapackDir) return [];
+    let names = [];
+    try { names = fs.readdirSync(datapackDir).filter((n) => /\.zip$/i.test(n)); } catch (_) { return []; }
+    const entries = [];
+    for (const name of names) entries.push({ name, hash: await hashOf(datapackDir, name) });
+    const map = entries.length ? await request('POST', `${API}/version_files`, { hashes: entries.map((e) => e.hash), algorithm: 'sha1' }) : {};
+    return entries.map((e) => ({ ...e, version: map[e.hash] || null }));
+  }
+
+  async function installedProjectIds(kind) {
+    const list = kindOf(kind) === 'datapack' ? await identifyDatapacks().catch(() => []) : await identify(false).catch(() => []);
+    return new Set(list.filter((e) => e.version).map((e) => e.version.project_id));
+  }
+
+  async function search(query, offset, sort, kind) {
+    const k = kindOf(kind);
+    if (!supported(k)) return { hits: [], total: 0 };
+    const facets = k === 'mod'
+      ? [[`project_type:${type}`], [`versions:${mcVersion}`], loaders.map((l) => `categories:${l}`)]
+      : [[`project_type:${k}`], [`versions:${mcVersion}`]];
+    const url = `${API}/search?query=${encodeURIComponent(query || '')}&limit=20&offset=${Math.max(0, Number(offset) || 0)}&index=${SORTS.has(sort) ? sort : 'relevance'}&facets=${encodeURIComponent(JSON.stringify(facets))}`;
     const r = await request('GET', url);
-    const installedProjects = new Set((await identify(false).catch(() => [])).filter((e) => e.version).map((e) => e.version.project_id));
+    const installedProjects = await installedProjectIds(k);
     return {
       total: r.total_hits,
-      hits: r.hits.map((h) => ({ projectId: h.project_id, slug: h.slug, title: h.title, description: h.description, author: h.author, downloads: h.downloads, icon: h.icon_url, installed: installedProjects.has(h.project_id) })),
+      kind: k,
+      installable: installable(k),
+      hits: r.hits.map((h) => ({ projectId: h.project_id, slug: h.slug, title: h.title, description: h.description, author: h.author, downloads: h.downloads, follows: h.follows, categories: (h.display_categories || h.categories || []).slice(0, 4), updated: h.date_modified, icon: h.icon_url, installed: installedProjects.has(h.project_id) })),
     };
   }
 
-  async function projectVersions(projectId) {
-    const list = await request('GET', `${API}/project/${encodeURIComponent(projectId)}/version?${vfilter()}`);
-    return list.map((v) => ({ id: v.id, number: v.version_number, name: v.name, channel: v.version_type, published: v.date_published, file: (v.files.find((f) => f.primary) || v.files[0] || {}).filename }));
+  async function project(projectId) {
+    const id = encodeURIComponent(projectId);
+    const [p, members] = await Promise.all([
+      request('GET', `${API}/project/${id}`),
+      request('GET', `${API}/project/${id}/members`).catch(() => []),
+    ]);
+    const installedIds = await installedProjectIds(p.project_type);
+    const link = (v) => (typeof v === 'string' && /^https?:\/\//i.test(v) ? v : null);
+    return {
+      projectId: p.id,
+      slug: p.slug,
+      type: p.project_type,
+      title: p.title,
+      description: p.description,
+      body: String(p.body || '').slice(0, 60000),
+      icon: p.icon_url,
+      downloads: p.downloads,
+      followers: p.followers,
+      categories: p.categories || [],
+      loaders: p.loaders || [],
+      gameVersions: (p.game_versions || []).slice(-40),
+      license: p.license ? { id: p.license.id, name: p.license.name } : null,
+      environment: { client: p.client_side, server: p.server_side },
+      links: { site: `https://modrinth.com/${p.project_type}/${p.slug}`, source: link(p.source_url), issues: link(p.issues_url), wiki: link(p.wiki_url), discord: link(p.discord_url) },
+      gallery: (p.gallery || []).slice(0, 12).map((g) => ({ url: g.url, title: g.title, description: g.description, featured: g.featured })),
+      published: p.published,
+      updated: p.updated,
+      team: (Array.isArray(members) ? members : []).slice(0, 8).map((m) => ({ name: m.user && m.user.username, role: m.role })),
+      installed: installedIds.has(p.id),
+      installable: installable(p.project_type === 'plugin' ? 'mod' : p.project_type),
+    };
+  }
+
+  async function projectVersions(projectId, kind) {
+    const list = await request('GET', `${API}/project/${encodeURIComponent(projectId)}/version?${vfilter(kind)}`);
+    return list.map((v) => ({ id: v.id, number: v.version_number, name: v.name, channel: v.version_type, published: v.date_published, downloads: v.downloads, gameVersions: (v.game_versions || []).slice(-3), file: (v.files.find((f) => f.primary) || v.files[0] || {}).filename, size: (v.files.find((f) => f.primary) || v.files[0] || {}).size }));
   }
 
   async function latestCompatible(projectId) {
@@ -151,7 +249,28 @@ function createModrinth({ modsDir, disabledDir, oldDir, mcVersion, loader }) {
     }
   }
 
-  async function install(projectId, versionId) {
+  async function installDatapack(projectId, versionId) {
+    if (!datapackDir) throw new Error('this server has no world folder for datapacks');
+    const list = versionId ? [await request('GET', `${API}/version/${encodeURIComponent(versionId)}`)] : await request('GET', `${API}/project/${encodeURIComponent(projectId)}/version?${vfilter('datapack')}`);
+    const version = versionId ? list[0] : (list.find((v) => v.version_type === 'release') || list[0]);
+    if (!version) throw new Error(`no datapack version for Minecraft ${mcVersion}`);
+    if (!version.game_versions.includes(mcVersion)) throw new Error('that version is not compatible with this server');
+    const file = version.files.find((f) => f.primary) || version.files[0];
+    if (!file || !SAFE_ZIP.test(file.filename)) throw new Error(`unsupported file: ${file ? file.filename : 'none'}`);
+    fs.mkdirSync(datapackDir, { recursive: true });
+    const dest = path.join(datapackDir, file.filename);
+    const log = [];
+    if (!fs.existsSync(dest)) {
+      await downloadVerified(file.url, dest, file.hashes && file.hashes.sha512, file.size);
+      log.push({ file: file.filename, version: version.version_number, projectId: version.project_id });
+    }
+    return log;
+  }
+
+  async function install(projectId, versionId, kind) {
+    const k = kindOf(kind);
+    if (k === 'datapack') return installDatapack(projectId, versionId);
+    if (k !== 'mod') throw new Error('this kind of project cannot be installed on a server');
     if (!supported()) throw new Error('this server type has no Modrinth support');
     const version = versionId ? await request('GET', `${API}/version/${encodeURIComponent(versionId)}`) : await latestCompatible(projectId);
     if (!version) throw new Error(`no version compatible with Minecraft ${mcVersion} (${loader})`);
@@ -206,7 +325,7 @@ function createModrinth({ modsDir, disabledDir, oldDir, mcVersion, loader }) {
     return log;
   }
 
-  return { supported, loaders, type, search, projectVersions, install, updates, applyUpdates };
+  return { supported, installable, loaders, type, search, project, projectVersions, install, updates, applyUpdates };
 }
 
-module.exports = { createModrinth, loadersFor, projectTypeFor };
+module.exports = { createModrinth, loadersFor, projectTypeFor, fetchImage };
