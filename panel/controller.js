@@ -11,6 +11,7 @@ const schedule = require('./lib/schedule');
 const { createModrinth, fetchImage } = require('./core/modules/modrinth');
 const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
+const { createProperties } = require('./core/modules/properties');
 const { INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
@@ -78,6 +79,7 @@ function toolsFor(inst) {
     const disabledDir = path.join(inst.dir, 'disabled_mods');
     t = {
       files: createFiles({ root: inst.dir }),
+      props: createProperties({ file: path.join(inst.dir, 'server.properties'), isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       mods: createMods({ modsDir, disabledDir }),
       modrinth: createModrinth({ modsDir, disabledDir, oldDir: path.join(inst.dir, `${kindDir}-old`), datapackDir: path.join(inst.dir, 'world', 'datapacks'), mcVersion: inst.version, loader: inst.type.toLowerCase() }),
     };
@@ -212,7 +214,17 @@ async function handleApi(req, res, url) {
     else if (action === 'stop') await rt.stopAsync();
     else if (action === 'kill') await rt.killAsync();
     else { await rt.stopAsync(); await rt.startAsync(); }
+    if (action !== 'stop' && action !== 'kill') toolsFor(inst).props.clearPending();
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'settings') {
+    const pr = toolsFor(inst).props;
+    if (method === 'GET') return json(res, 200, pr.state());
+    if (method === 'POST') {
+      const data = await readBody(req);
+      try { return json(res, 200, { ok: true, settings: pr.apply(data.settings) }); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+    }
   }
 
   if (action === 'mods') {
