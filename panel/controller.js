@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { docker, stateCache, refreshStates, startPolling, runtimeFor, forget: forgetRuntime } = require('./runtime');
 const backups = require('./lib/backups');
+const schedule = require('./lib/schedule');
 const { createModrinth, fetchImage } = require('./core/modules/modrinth');
 const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
@@ -164,7 +165,7 @@ async function handleApi(req, res, url) {
     return json(res, 201, { ok: true, id: inst.id });
   }
 
-  const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?(?:\/([\w.-]+))?(?:\/(restore))?$/.exec(p);
+  const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?(?:\/([\w.-]+))?(?:\/(restore|run))?$/.exec(p);
   if (!m) return json(res, 404, { error: 'not found' });
   const inst = findInstance(m[1]);
   if (!inst) return json(res, 404, { error: 'unknown instance' });
@@ -284,6 +285,16 @@ async function handleApi(req, res, url) {
     } catch (err) { return bad(err instanceof SyntaxError ? Object.assign(err, { status: 400, message: 'bad json' }) : err); }
   }
 
+  if (action === 'schedule') {
+    const bad = (err) => json(res, 400, { ok: false, error: err.message });
+    try {
+      if (!m[3] && method === 'GET') return json(res, 200, schedule.list(inst));
+      if (!m[3] && method === 'POST') { schedule.save(inst, await readBody(req)); return json(res, 200, { ok: true }); }
+      if (m[3] && m[4] === 'run' && method === 'POST') return json(res, 200, { ok: true, result: schedule.run(inst, OWNER, m[3]) });
+      if (m[3] && !m[4] && method === 'DELETE') { schedule.remove(inst, m[3]); return json(res, 200, { ok: true }); }
+    } catch (err) { return bad(err); }
+  }
+
   if (action === 'backups') {
     const b = backups.forInstance(inst, OWNER);
     const name = m[3];
@@ -356,6 +367,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 startPolling();
+setInterval(() => schedule.tick(OWNER), 20000).unref();
 for (const inst of instances.list()) backups.forInstance(inst, OWNER);
 
 server.listen(PORT, HOST, () => console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`));

@@ -75,6 +75,11 @@ tbody tr:hover{background:var(--panel2)}
 .tag{display:inline-block;padding:1px 8px;border:1px solid var(--line2);border-radius:999px;font-size:11px;color:var(--muted)}
 .sub-tabs{display:flex;gap:6px;margin-bottom:14px}
 .empty-state{padding:28px;text-align:center;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px}
+.span-12{grid-column:span 12}
+.modal-title{margin:0 0 6px;font-size:17px}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.modal .hint{color:var(--muted)}
 a.btn{color:var(--text);text-decoration:none;display:inline-block}
 #filesBreadcrumb a{color:var(--accent);text-decoration:none}
 .mr-md a{color:var(--accent)}
@@ -113,13 +118,14 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
-      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
 
       <div id="tab-console">
         <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
         <div id="console"></div>
         <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
       </div>
+      <div id="tab-schedule" class="hidden"><div id="scheduleRoot"></div></div>
       <div id="tab-files" class="hidden"><div id="filesRoot"></div></div>
       <div id="tab-mods" class="hidden">
         <div class="sub-tabs"><button class="btn primary" data-mods-tab="installed">Installed</button><button class="btn" data-mods-tab="browse">Browse Modrinth</button><button class="btn" data-mods-tab="updates">Updates <span class="tag" id="modsUpdateCount" style="display:none">0</span></button></div>
@@ -157,6 +163,7 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
 
 <script src="/core/ui/modrinth-ui.js"></script>
 <script src="/core/ui/files-ui.js"></script>
+<script src="/core/ui/schedule-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -277,11 +284,12 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'files', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'files', 'schedule', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
   if (t === 'backups') loadBackups();
   if (t === 'mods') showModsTab('installed');
   if (t === 'files') FILES.load('.');
+  if (t === 'schedule') SCHEDULE.load();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.tab);
 
@@ -352,6 +360,15 @@ $('bkForm').onsubmit = async (e) => {
   e.preventDefault();
   try { await api(`/api/instances/${current.id}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('bkHours').value), maxBackups: Number($('bkMax').value), backupMinFreeGB: Number($('bkFree').value) } }); toast('Backup settings saved'); } catch (err) { toast(err.message); }
 };
+
+// --- scheduler ---
+const SCHEDULE = MeowSchedule.mount({
+  el: $('scheduleRoot'),
+  base: () => `/api/instances/${current.id}/schedule`,
+  t: tr, esc, toast, fmtDate,
+  confirm: (title, message, label) => confirmBox(title, message, label),
+  isVisible: () => !$('tab-schedule').classList.contains('hidden'),
+});
 
 // --- files ---
 const FILES = MeowFiles.mount({
