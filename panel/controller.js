@@ -5,7 +5,8 @@ const os = require('os');
 const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
-const docker = require('./lib/docker');
+const { docker, stateCache, refreshStates, startPolling, runtimeFor, forget: forgetRuntime } = require('./runtime');
+const backups = require('./lib/backups');
 const { INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
@@ -118,8 +119,8 @@ async function handleApi(req, res, url) {
     return json(res, 200, { user: session.username, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
   }
   if (p === '/api/instances' && method === 'GET') {
-    const [st, stats] = await Promise.all([docker.states(), url.searchParams.get('stats') === '1' ? docker.stats() : {}]);
-    return json(res, 200, instances.list().map((i) => publicInstance(i, st[docker.containerName(i)], stats[docker.containerName(i)])));
+    const withStats = url.searchParams.get('stats') === '1';
+    return json(res, 200, instances.list().map((i) => publicInstance(i, stateCache.states[docker.containerName(i)], withStats ? stateCache.stats[docker.containerName(i)] : null)));
   }
   if (p === '/api/instances' && method === 'POST') {
     const { spec, error } = validateSpec(await readBody(req), null);
@@ -130,57 +131,102 @@ async function handleApi(req, res, url) {
     const inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, createdAt: Date.now() };
     inst.dir = path.join(INSTANCES_DIR, inst.name);
     fs.mkdirSync(inst.dir, { recursive: true });
-    try { await docker.create(inst, OWNER); await docker.start(inst); } catch (err) {
-      await docker.remove(inst);
+    const rt = runtimeFor(inst, OWNER);
+    try { await rt.createContainer(); await rt.startAsync(); } catch (err) {
+      await rt.removeContainer();
+      forgetRuntime(inst.id);
       return json(res, 500, { error: err.message });
     }
     list.push(inst);
     instances.save(list);
+    backups.forInstance(inst, OWNER);
     return json(res, 201, { ok: true, id: inst.id });
   }
 
-  const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?$/.exec(p);
+  const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?(?:\/([\w.-]+))?(?:\/(restore))?$/.exec(p);
   if (!m) return json(res, 404, { error: 'not found' });
   const inst = findInstance(m[1]);
   if (!inst) return json(res, 404, { error: 'unknown instance' });
   const action = m[2];
+  const rt = runtimeFor(inst, OWNER);
 
   if (!action && method === 'DELETE') {
     const data = await readBody(req).catch(() => ({}));
-    await docker.remove(inst);
+    await rt.removeContainer();
+    forgetRuntime(inst.id);
+    backups.forget(inst.id);
     instances.save(instances.list().filter((i) => i.id !== inst.id));
     if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) fs.rmSync(inst.dir, { recursive: true, force: true });
     return json(res, 200, { ok: true });
   }
   if (action === 'logs' && method === 'GET') {
-    return json(res, 200, { logs: await docker.logs(inst, Number(url.searchParams.get('tail')) || 300) });
+    return json(res, 200, { logs: await rt.logs(Number(url.searchParams.get('tail')) || 300) });
   }
   if (action === 'command' && method === 'POST') {
     const data = await readBody(req);
     const cmd = String(data.command || '').trim();
     if (!cmd || cmd.length > 500) return json(res, 400, { error: 'empty or too long command' });
-    return json(res, 200, { output: await docker.command(inst, cmd) });
+    return json(res, 200, { output: await rt.commandAsync(cmd) });
   }
   if (action === 'limits' && method === 'POST') {
     const { spec, error } = validateSpec({ ...inst, ...(await readBody(req)) }, inst);
     if (error) return json(res, 400, { error });
     if (spec.port !== inst.port && (instances.list().some((i) => i.port === spec.port) || !(await portFree(spec.port)))) return json(res, 409, { error: `port ${spec.port} is in use` });
-    const st = (await docker.states())[docker.containerName(inst)];
-    const wasRunning = st && st.state === 'running';
-    if (wasRunning) await docker.stop(inst);
-    await docker.remove(inst);
+    await refreshStates();
+    const wasRunning = rt.isRunning();
+    if (wasRunning) await rt.stopAsync();
+    await rt.removeContainer();
     Object.assign(inst, { port: spec.port, memoryMB: spec.memoryMB, cpus: spec.cpus });
-    await docker.create(inst, OWNER);
-    if (wasRunning) await docker.start(inst);
     instances.save(instances.list().map((i) => (i.id === inst.id ? inst : i)));
+    forgetRuntime(inst.id);
+    const fresh = runtimeFor(inst, OWNER);
+    await fresh.createContainer();
+    if (wasRunning) await fresh.startAsync();
     return json(res, 200, { ok: true });
   }
   if (method === 'POST' && ['start', 'stop', 'restart', 'kill'].includes(action)) {
-    if (action === 'start') await docker.start(inst);
-    else if (action === 'stop') await docker.stop(inst);
-    else if (action === 'kill') await docker.kill(inst);
-    else { await docker.stop(inst); await docker.start(inst); }
+    if (action === 'start') await rt.startAsync();
+    else if (action === 'stop') await rt.stopAsync();
+    else if (action === 'kill') await rt.killAsync();
+    else { await rt.stopAsync(); await rt.startAsync(); }
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'backups') {
+    const b = backups.forInstance(inst, OWNER);
+    const name = m[3];
+    if (!name && method === 'GET') {
+      return json(res, 200, { backups: b.api.listBackups(), ...b.api.state, settings: b.settings, log: b.log.slice(-20) });
+    }
+    if (!name && method === 'POST') {
+      if (b.api.state.backupInProgress) return json(res, 409, { error: 'a backup is already running' });
+      b.api.createBackup('manual', b.deps).catch(() => {});
+      return json(res, 202, { ok: true });
+    }
+    if (name === 'settings' && method === 'POST') {
+      const data = await readBody(req);
+      const max = Math.round(Number(data.maxBackups)), hours = Number(data.backupIntervalHours), free = Number(data.backupMinFreeGB);
+      if (!(max >= 1 && max <= 100)) return json(res, 400, { error: 'keep 1-100 backups' });
+      if (!(hours >= 0.25 && hours <= 168)) return json(res, 400, { error: 'interval must be 0.25-168 hours' });
+      if (!(free >= 0 && free <= 1000)) return json(res, 400, { error: 'free space must be 0-1000 GB' });
+      Object.assign(b.settings, { maxBackups: max, backupIntervalHours: hours, backupMinFreeGB: free });
+      instances.save(instances.list().map((i) => (i.id === inst.id ? { ...i, backup: { ...b.settings } } : i)));
+      b.api.rescheduleAutoBackup(b.deps);
+      return json(res, 200, { ok: true });
+    }
+    if (name && !b.api.BACKUP_NAME_RE.test(name)) return json(res, 400, { error: 'invalid backup name' });
+    const file = name && path.join(b.backupDir, name);
+    if (name && m[4] === 'restore' && method === 'POST') {
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'backup not found' });
+      if (b.api.state.backupInProgress) return json(res, 409, { error: 'a backup is running' });
+      try { await b.api.restoreBackup(name, b.deps); } catch (err) { return json(res, 500, { error: err.message }); }
+      return json(res, 200, { ok: true });
+    }
+    if (name && method === 'DELETE') {
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'backup not found' });
+      fs.unlinkSync(file);
+      return json(res, 200, { ok: true });
+    }
   }
   return json(res, 404, { error: 'not found' });
 }
@@ -209,5 +255,8 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
+
+startPolling();
+for (const inst of instances.list()) backups.forInstance(inst, OWNER);
 
 server.listen(PORT, HOST, () => console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`));

@@ -94,12 +94,22 @@ tbody tr:hover{background:var(--panel2)}
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
-      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
 
       <div id="tab-console">
         <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
         <div id="console"></div>
         <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
+      </div>
+      <div id="tab-backups" class="hidden">
+        <div class="top" style="margin-bottom:10px"><button class="btn primary" id="bkNow">Back up now</button><span class="hint" id="bkState"></span></div>
+        <div class="card"><table><thead><tr><th>File</th><th>Size</th><th>Created</th><th></th></tr></thead><tbody id="bkRows"></tbody></table><div id="bkEmpty" class="empty hidden">No backups yet.</div></div>
+        <form class="card" style="padding:16px 20px;max-width:560px;margin-top:14px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end" id="bkForm">
+          <label class="f" style="margin:0"><span>Every (hours)</span><input class="input" id="bkHours" type="number" min="0.25" max="168" step="0.25" style="width:110px"></label>
+          <label class="f" style="margin:0"><span>Keep at most</span><input class="input" id="bkMax" type="number" min="1" max="100" style="width:110px"></label>
+          <label class="f" style="margin:0"><span>Keep GB free</span><input class="input" id="bkFree" type="number" min="0" max="1000" style="width:110px"></label>
+          <button class="btn">Save</button>
+        </form>
       </div>
       <div id="tab-limits" class="hidden">
         <form class="card" style="padding:20px;max-width:420px" id="limitForm">
@@ -233,8 +243,9 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
+  if (t === 'backups') loadBackups();
 }
 for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => setTab(b.dataset.tab);
 
@@ -261,6 +272,49 @@ $('delBtn').onclick = async () => {
   const r = await modal('Delete instance?', box, [{ label: 'Cancel', value: null }, { label: 'Delete', danger: true, value: () => ({ deleteData: $('delData').checked }) }]);
   if (!r) return;
   try { await api(`/api/instances/${current.id}`, { method: 'DELETE', body: r }); toast('Deleted'); showList(); } catch (err) { toast(err.message); }
+};
+
+let bkTimer = null;
+const fmtDate = (t) => new Date(t).toLocaleString();
+async function loadBackups() {
+  if (!current) return;
+  try {
+    const d = await api(`/api/instances/${current.id}/backups`);
+    $('bkRows').innerHTML = '';
+    for (const b of d.backups) {
+      const tr = document.createElement('tr'); tr.style.cursor = 'default';
+      tr.innerHTML = '<td></td><td></td><td></td><td style="text-align:right;white-space:nowrap"></td>';
+      tr.children[0].textContent = b.name; tr.children[1].textContent = b.sizeMB + ' MB'; tr.children[2].textContent = fmtDate(b.createdAt);
+      const restore = document.createElement('button'); restore.className = 'btn'; restore.textContent = 'Restore';
+      restore.onclick = () => restoreBackup(b.name);
+      const del = document.createElement('button'); del.className = 'btn danger'; del.textContent = 'Delete'; del.style.marginLeft = '8px';
+      del.onclick = () => deleteBackup(b.name);
+      tr.children[3].append(restore, del);
+      $('bkRows').appendChild(tr);
+    }
+    $('bkEmpty').classList.toggle('hidden', d.backups.length > 0);
+    $('bkState').textContent = d.backupInProgress ? 'Backup running...' : (d.lastBackupError ? 'Last backup failed: ' + d.lastBackupError : (d.lastBackupAt ? 'Last backup ' + fmtDate(d.lastBackupAt) : ''));
+    if (!$('bkHours').matches(':focus') && !$('bkMax').matches(':focus') && !$('bkFree').matches(':focus')) {
+      $('bkHours').value = d.settings.backupIntervalHours; $('bkMax').value = d.settings.maxBackups; $('bkFree').value = d.settings.backupMinFreeGB;
+    }
+    clearTimeout(bkTimer);
+    if (!$('tab-backups').classList.contains('hidden')) bkTimer = setTimeout(loadBackups, d.backupInProgress ? 1500 : 5000);
+  } catch (_) {}
+}
+$('bkNow').onclick = async () => {
+  try { await api(`/api/instances/${current.id}/backups`, { method: 'POST' }); toast('Backup started'); loadBackups(); } catch (err) { toast(err.message); }
+};
+async function restoreBackup(name) {
+  if (!(await confirmBox('Restore this backup?', `The server is stopped, the current world is moved aside and ${name} is restored. Start the server afterwards.`, 'Restore'))) return;
+  try { toast('Restoring...'); await api(`/api/instances/${current.id}/backups/${encodeURIComponent(name)}/restore`, { method: 'POST' }); toast('Backup restored'); loadBackups(); pollDetail(); } catch (err) { toast(err.message); }
+}
+async function deleteBackup(name) {
+  if (!(await confirmBox('Delete this backup?', name + ' is removed permanently.', 'Delete'))) return;
+  try { await api(`/api/instances/${current.id}/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }); loadBackups(); } catch (err) { toast(err.message); }
+}
+$('bkForm').onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api(`/api/instances/${current.id}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('bkHours').value), maxBackups: Number($('bkMax').value), backupMinFreeGB: Number($('bkFree').value) } }); toast('Backup settings saved'); } catch (err) { toast(err.message); }
 };
 
 boot();

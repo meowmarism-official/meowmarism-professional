@@ -104,6 +104,13 @@ async function states() {
   return map;
 }
 
+function parseMemMB(text) {
+  const m = /^\s*([\d.]+)\s*([KMGT]?i?B)/i.exec(String(text || ''));
+  if (!m) return null;
+  const unit = { B: 1 / 1048576, KIB: 1 / 1024, MIB: 1, GIB: 1024, TIB: 1048576, KB: 1 / 1000, MB: 0.9537, GB: 953.7 }[m[2].toUpperCase()];
+  return unit ? Number((Number(m[1]) * unit).toFixed(1)) : null;
+}
+
 async function stats() {
   const r = await run(['stats', '--no-stream', '--format', '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}', ...[]], { timeout: 20000 });
   const map = {};
@@ -111,7 +118,7 @@ async function stats() {
   for (const line of r.stdout.split('\n')) {
     const [name, cpu, mem] = line.split('|');
     if (!name || !name.startsWith(PREFIX)) continue;
-    map[name] = { cpu: parseFloat(cpu) || 0, mem: mem || '' };
+    map[name] = { cpu: parseFloat(cpu) || 0, mem: mem || '', memMB: parseMemMB(mem) };
   }
   return map;
 }
