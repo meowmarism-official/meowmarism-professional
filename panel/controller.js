@@ -14,6 +14,7 @@ const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
 const { createUsersApi } = require('./core/modules/users-api');
+const { createUpdater } = require('./core/modules/updater');
 const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
@@ -24,6 +25,8 @@ const { HOME, DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_A
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
 const HOST = process.env.MEOWMARISM_HOST || '0.0.0.0';
 const SECURE_COOKIE = process.env.MEOWMARISM_SECURE_COOKIES === '1';
+const updater = createUpdater({ repo: 'meowmarism-official/meowmarism-professional', panelDir: __dirname, statePrefix: '.meowmarism-pro', probePath: '/' });
+try { updater.bootCheck(); } catch (_) {}
 const panelSettings = createPanelSettings({ file: path.join(HOME, '.meowmarism-pro-settings.json') });
 const { clientIp, isHttps } = panelSettings;
 const COOKIE = 'meow_pro_session';
@@ -190,6 +193,15 @@ async function handleApi(req, res, url) {
   const me = users.store.findUser(session.username);
   if (!me) return json(res, 401, { error: 'not authenticated' });
   if (usersApi.handle(req, res, url)) return;
+  if ((p === '/api/version') && method === 'GET') {
+    return json(res, 200, { ...(await updater.versionInfo(url.searchParams.get('refresh') === '1')), canUpdate: hasPanelCap(me, 'update'), running: [] });
+  }
+  if (p === '/api/update-status' && method === 'GET') return json(res, 200, updater.status());
+  if (p === '/api/update' && method === 'POST') {
+    if (!hasPanelCap(me, 'update')) return json(res, 403, { error: 'not allowed to update' });
+    if (!updater.start()) return json(res, 409, { error: 'an update is already running' });
+    return json(res, 202, { ok: true });
+  }
   if (p === '/api/panel-settings') {
     if (!hasPanelCap(me, 'users')) return json(res, 403, { error: 'not allowed to change settings' });
     if (method === 'GET') return json(res, 200, panelSettings.load());
@@ -202,7 +214,7 @@ async function handleApi(req, res, url) {
     }
   }
   if (p === '/api/system' && method === 'GET') {
-    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
+    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
   }
   if (p === '/api/instances' && method === 'GET') {
     const withStats = url.searchParams.get('stats') === '1';
@@ -548,4 +560,4 @@ setInterval(sampleMetrics, 5000).unref();
 setInterval(saveMetrics, 60000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { saveMetrics(); process.exit(0); });
 
-server.listen(PORT, HOST, () => console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => { console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`); updater.confirmHealthy(); });

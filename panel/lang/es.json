@@ -55,7 +55,8 @@
   "Go to an older version?": "¿Cambiar a una versión anterior?",
   "Going to an older Minecraft version can damage the world.": "Cambiar a una versión anterior de Minecraft puede dañar el mundo.",
   "Upgrade the server?": "¿Actualizar el servidor?",
-  "This restores the previous version and the world from the backup taken before the upgrade. Everything played since is lost.": "Esto restaura la versión anterior y el mundo de la copia anterior a la actualización. Todo lo jugado desde entonces se pierde."
+  "This restores the previous version and the world from the backup taken before the upgrade. Everything played since is lost.": "Esto restaura la versión anterior y el mundo de la copia anterior a la actualización. Todo lo jugado desde entonces se pierde.",
+  "Updating installs the newest release and restarts the panel. Your servers keep running in their containers.": "La actualización instala la última versión y reinicia el panel. Tus servidores siguen funcionando en sus contenedores."
  },
  "patterns": []
 }

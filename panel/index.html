@@ -58,46 +58,12 @@ label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
 </head>
 <body>
 
-<nav class="sidebar" id="sidebar">
-  <div class="side-brand">
-    <svg class="brand-logo" height="22" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="meowmarism"><path d="M3.2 4.7 C3.2 3.29 4.82 2.5 5.94 3.36 L13 8.83 L20.06 3.36 C21.18 2.5 22.8 3.29 22.8 4.7 L22.8 18.4 C22.8 20.58 20.28 21.79 18.57 20.42 L13 15.96 L7.43 20.42 C5.72 21.79 3.2 20.58 3.2 18.4 Z"/><path d="M12.08 14.59 C12.08 14.26 12.35 14.06 12.74 14.06 H13.26 C13.65 14.06 13.92 14.26 13.92 14.59 C13.92 14.85 13.79 15.04 13.59 15.24 L13 15.83 L12.41 15.24 C12.21 15.04 12.08 14.85 12.08 14.59 Z" fill="currentColor" stroke="none"/><path d="M6.3 12.7 L9.6 13.7" stroke-width="1.3"/><path d="M6.3 15.5 L9.6 14.9" stroke-width="1.3"/><path d="M19.7 12.7 L16.4 13.7" stroke-width="1.3"/><path d="M19.7 15.5 L16.4 14.9" stroke-width="1.3"/></svg>
-    <div class="side-brand-text">
-      <div class="side-brand-name"><span class="wordmark">meowmarism</span> <span class="edition">PRO</span></div>
-    </div>
-  </div>
-  <div class="side-top">
-    <button class="side-item on" id="navInstances" title="Instances">
-      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><line x1="7" y1="7.5" x2="7.01" y2="7.5"/><line x1="7" y1="16.5" x2="7.01" y2="16.5"/></svg>
-      <span class="side-label">Instances</span>
-    </button>
-    <button class="side-item hidden" id="usersNav" title="Manage users">
-      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span class="side-label">Manage users</span>
-    </button>
-  </div>
-  <div class="side-bottom">
-    <button class="side-item" data-lang-toggle title="Language">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-      <span class="side-label" data-no-i18n data-lang-label></span>
-    </button>
-    <div class="side-account">
-      <div class="side-avatar" id="sideAvatar">?</div>
-      <div class="side-account-info">
-        <div class="side-account-name" id="sideAccountName">-</div>
-        <div class="side-account-role" id="sideAccountRole"></div>
-      </div>
-    </div>
-    <button class="side-item" id="logout" title="Log out">
-      <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-      <span class="side-label">Log out</span>
-    </button>
-  </div>
-</nav>
 
 <div class="main" id="app">
 <div class="wrap">
     <div id="dockerBanner" class="banner hidden"></div>
 
+    <section class="page active" id="page-server">
     <section id="listView">
       <div class="topbar">
         <div>
@@ -110,14 +76,8 @@ label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
       <div class="inst-grid" id="instGrid"></div>
     </section>
 
-    <section id="usersView" class="hidden"><div class="top"><button class="btn" id="usersBack">&larr; Instances</button></div><div id="usersRoot"></div>
-      <div class="card" style="padding:18px;margin-top:18px"><div class="card-title">Panel</div>
-        <label style="display:flex;gap:10px;align-items:center;margin-top:10px"><input type="checkbox" id="trustProxy"><span>This panel runs behind an HTTPS reverse proxy</span></label>
-        <p class="hint">Turn this on only when a proxy such as Caddy or nginx in front of the panel sets X-Forwarded-For and X-Forwarded-Proto. It enables Secure cookies and correct client IPs for login protection.</p>
-        <p class="hint" id="proxyStatus"></p></div></section>
-
     <section id="detailView" class="hidden">
-      <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
+      <div class="top"><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
       <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="performance">Performance</button><button data-tab="players">Players</button><button data-tab="access">Access</button><button data-tab="settings">Settings</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="version">Version</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
@@ -173,11 +133,15 @@ label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
       </div>
       <div id="tab-danger" class="hidden"><div class="card" style="padding:20px;max-width:420px"><p class="hint" style="margin-top:0">Removes the container. You can keep or delete the world and settings.</p><button class="btn danger" id="delBtn">Delete instance...</button></div></div>
     </section>
+    </section>
+
+    <section class="page" id="page-users"><div id="usersRoot"></div></section>
 </div>
 </div>
 
 <script src="/core/ui/loaders.js"></script>
 <script src="/core/ui/instances-ui.js"></script>
+<script src="/core/ui/shell.js"></script>
 <script src="/core/ui/modrinth-ui.js"></script>
 <script src="/core/ui/files-ui.js"></script>
 <script src="/core/ui/schedule-ui.js"></script>
@@ -223,17 +187,32 @@ async function api(path, opts = {}) {
   return data;
 }
 
+const SHELL = MeowShell.mount({
+  edition: 'PRO',
+  repo: 'meowmarism-official/meowmarism-professional',
+  serverLabel: 'Instances',
+  updateHint: 'Updating installs the newest release and restarts the panel. Your servers keep running in their containers.',
+  urls: { version: '/api/version', update: '/api/update', updateStatus: '/api/update-status', settings: '/api/panel-settings' },
+  t: tr, esc,
+  confirm: (title, message, label) => confirmBox(title, message, label),
+  pagesEl: document.querySelector('.wrap'),
+  onLogout: async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); },
+  onPage: (page) => {
+    clearInterval(listTimer); clearInterval(logTimer);
+    if (page === 'server') showList();
+    if (page === 'users') { current = null; USERS.load(); }
+  },
+});
+
 function showLogin() { clearInterval(listTimer); clearInterval(logTimer); location.href = '/'; }
 async function boot() {
   try { system = await api('/api/system'); } catch (_) { return showLogin(); }
-  $('sideAccountName').textContent = system.user; $('sideAccountRole').textContent = system.role; $('sideAvatar').textContent = system.user.slice(0, 1);
   if (!system.docker.ok) { $('dockerBanner').textContent = 'Docker is not reachable: ' + system.docker.error; $('dockerBanner').classList.remove('hidden'); }
-  $('usersNav').classList.toggle('hidden', !system.panel.users);
   $('newBtn').classList.toggle('hidden', !system.panel.create);
-  showList();
+  SHELL.setAccount({ username: system.user, role: system.role, loggedIn: true }, system.panel);
+  SHELL.showPage('server');
 }
 
-$('logout').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); showLogin(); };
 
 function stateOf(i) {
   if (i.state === 'running') return i.health === 'healthy' ? ['on', 'Running'] : ['mid', 'Starting'];
@@ -259,13 +238,9 @@ async function loadList() {
 }
 function showList() {
   clearInterval(logTimer); current = null;
-  setNav(false);
-  $('usersView').classList.add('hidden'); $('detailView').classList.add('hidden'); $('listView').classList.remove('hidden');
+  $('detailView').classList.add('hidden'); $('listView').classList.remove('hidden');
   loadList().catch(() => {}); clearInterval(listTimer); listTimer = setInterval(() => loadList().catch(() => {}), 5000);
 }
-$('back').onclick = showList;
-$('navInstances').onclick = showList;
-function setNav(users) { $('navInstances').classList.toggle('on', !users); $('usersNav').classList.toggle('on', users); }
 document.addEventListener('click', async (e) => {
   const open = e.target.closest('[data-open]');
   if (open) { e.preventDefault(); return showDetail(open.dataset.open); }
@@ -279,19 +254,6 @@ document.addEventListener('click', async (e) => {
   try { await api(`/api/instances/${inst.id}/${act.dataset.act}`, { method: 'POST' }); } catch (err) { toast(err.message); }
   setTimeout(() => loadList().catch(() => {}), 800);
 });
-$('usersBack').onclick = showList;
-$('trustProxy').onchange = async (e) => {
-  try { await api('/api/panel-settings', { method: 'POST', body: { trustProxy: e.target.checked } }); $('proxyStatus').textContent = tr('Saved.'); }
-  catch (err) { $('proxyStatus').textContent = err.message; }
-};
-$('usersNav').onclick = () => {
-  setNav(true);
-  clearInterval(listTimer); clearInterval(logTimer); current = null;
-  $('listView').classList.add('hidden'); $('detailView').classList.add('hidden'); $('usersView').classList.remove('hidden');
-  USERS.load();
-  api('/api/panel-settings').then((c) => { $('trustProxy').checked = !!c.trustProxy; }).catch(() => {});
-};
-
 $('newBtn').onclick = async () => {
   const box = document.createElement('div');
   box.innerHTML = `<label class="f"><span>Name</span><input class="input" id="nName" placeholder="survival"></label>
