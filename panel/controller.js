@@ -80,6 +80,18 @@ const findInstance = (id) => instances.list().find((i) => i.id === id);
 
 // Files, mods and Modrinth for one instance, built on the shared modules from core.
 const toolCache = new Map();
+const playersFile = (inst) => path.join(DATA_DIR, 'players', `${inst.name}.json`);
+function loadPlayers(inst) {
+  const tracker = createPlayerTracker();
+  try { tracker.restore(JSON.parse(fs.readFileSync(playersFile(inst), 'utf8'))); } catch (_) {}
+  return tracker;
+}
+function savePlayers(inst, tracker) {
+  try {
+    fs.mkdirSync(path.dirname(playersFile(inst)), { recursive: true });
+    fs.writeFileSync(playersFile(inst), JSON.stringify(tracker.snapshot()));
+  } catch (_) {}
+}
 function toolsFor(inst) {
   let t = toolCache.get(inst.id);
   if (!t) {
@@ -88,7 +100,7 @@ function toolsFor(inst) {
     const disabledDir = path.join(inst.dir, 'disabled_mods');
     t = {
       files: createFiles({ root: inst.dir }),
-      players: createPlayerTracker(),
+      players: loadPlayers(inst),
       metrics: createMetrics({ keys: ['cpu', 'memMB', 'players'], file: path.join(DATA_DIR, 'metrics', `${inst.name}.json`) }),
       access: createAccess({ dir: inst.dir, isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       props: createProperties({ file: path.join(inst.dir, 'server.properties'), isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
@@ -238,6 +250,7 @@ async function handleApi(req, res, url) {
     if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) {
       fs.rmSync(inst.dir, { recursive: true, force: true });
       fs.rmSync(path.join(DATA_DIR, 'metrics', `${inst.name}.json`), { force: true });
+      fs.rmSync(playersFile(inst), { force: true });
       removeRecord(inst);
     }
     return json(res, 200, { ok: true });
@@ -523,7 +536,13 @@ function sampleMetrics() {
     tl.metrics.add({ cpu: stat.cpu, memMB: stat.memMB, players: tl.players.players.size });
   }
 }
-function saveMetrics() { for (const inst of instances.list()) toolsFor(inst).metrics.save(); }
+function saveMetrics() {
+  for (const inst of instances.list()) {
+    const tl = toolsFor(inst);
+    tl.metrics.save();
+    savePlayers(inst, tl.players);
+  }
+}
 setInterval(sampleMetrics, 5000).unref();
 setInterval(saveMetrics, 60000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { saveMetrics(); process.exit(0); });
