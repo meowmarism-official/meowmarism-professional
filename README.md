@@ -1,6 +1,6 @@
 # meowmarism PROFESSIONAL
 
-Minecraft servers in Docker containers with hard CPU and memory limits, managed from one panel. Under development, not released yet.
+Minecraft servers in Docker containers with hard CPU and memory limits, managed from one panel. Early release (0.1).
 
 - One container per instance (image `itzg/minecraft-server`, Java version chosen per Minecraft version)
 - Hard CPU and memory limits through Docker (cgroups), changeable per instance
