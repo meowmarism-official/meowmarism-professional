@@ -13,8 +13,9 @@ const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
+const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
-const { INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
+const { DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
 const HOST = process.env.MEOWMARISM_HOST || '0.0.0.0';
@@ -82,6 +83,7 @@ function toolsFor(inst) {
     t = {
       files: createFiles({ root: inst.dir }),
       players: createPlayerTracker(),
+      metrics: createMetrics({ keys: ['cpu', 'memMB', 'players'], file: path.join(DATA_DIR, 'metrics', `${inst.name}.json`) }),
       access: createAccess({ dir: inst.dir, isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       props: createProperties({ file: path.join(inst.dir, 'server.properties'), isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       mods: createMods({ modsDir, disabledDir }),
@@ -185,7 +187,10 @@ async function handleApi(req, res, url) {
     backups.forget(inst.id);
     toolCache.delete(inst.id);
     instances.save(instances.list().filter((i) => i.id !== inst.id));
-    if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) fs.rmSync(inst.dir, { recursive: true, force: true });
+    if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) {
+      fs.rmSync(inst.dir, { recursive: true, force: true });
+      fs.rmSync(path.join(DATA_DIR, 'metrics', `${inst.name}.json`), { force: true });
+    }
     return json(res, 200, { ok: true });
   }
   if (action === 'logs' && method === 'GET') {
@@ -220,6 +225,11 @@ async function handleApi(req, res, url) {
     else { await rt.stopAsync(); await rt.startAsync(); }
     if (action !== 'stop' && action !== 'kill') toolsFor(inst).props.clearPending();
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'metrics' && method === 'GET') {
+    const range = Math.min(Math.max(Number(url.searchParams.get('range')) || 300000, 60000), 7 * 86400000);
+    return json(res, 200, { points: toolsFor(inst).metrics.series(range), limits: { cpu: inst.cpus * 100, memMB: inst.memoryMB + 768 } });
   }
 
   if (action === 'players') {
@@ -426,5 +436,19 @@ async function pollPlayers() {
   }
 }
 setInterval(pollPlayers, 10000).unref();
+
+function sampleMetrics() {
+  for (const inst of instances.list()) {
+    const st = stateCache.states[docker.containerName(inst)];
+    if (!st || st.state !== 'running') continue;
+    const stat = stateCache.stats[docker.containerName(inst)] || {};
+    const tl = toolsFor(inst);
+    tl.metrics.add({ cpu: stat.cpu, memMB: stat.memMB, players: tl.players.players.size });
+  }
+}
+function saveMetrics() { for (const inst of instances.list()) toolsFor(inst).metrics.save(); }
+setInterval(sampleMetrics, 5000).unref();
+setInterval(saveMetrics, 60000).unref();
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { saveMetrics(); process.exit(0); });
 
 server.listen(PORT, HOST, () => console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`));

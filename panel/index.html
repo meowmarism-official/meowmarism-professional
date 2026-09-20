@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="/core/ui/settings-ui.css">
 <link rel="stylesheet" href="/core/ui/access-ui.css">
 <link rel="stylesheet" href="/core/ui/players-ui.css">
+<link rel="stylesheet" href="/core/ui/charts-ui.css">
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font-ui)}
@@ -121,13 +122,14 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
-      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="players">Players</button><button data-tab="access">Access</button><button data-tab="settings">Settings</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="performance">Performance</button><button data-tab="players">Players</button><button data-tab="access">Access</button><button data-tab="settings">Settings</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
 
       <div id="tab-console">
         <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
         <div id="console"></div>
         <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
       </div>
+      <div id="tab-performance" class="hidden"><div id="perfRoot"></div></div>
       <div id="tab-players" class="hidden"><div id="playersRoot"></div></div>
       <div id="tab-access" class="hidden"><div id="accessRoot"></div></div>
       <div id="tab-settings" class="hidden"><div id="settingsRoot"></div></div>
@@ -173,6 +175,7 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
 <script src="/core/ui/settings-ui.js"></script>
 <script src="/core/ui/access-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
+<script src="/core/ui/charts-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -293,12 +296,13 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'files', 'schedule', 'players', 'access', 'settings', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'files', 'schedule', 'performance', 'players', 'access', 'settings', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
   if (t === 'backups') loadBackups();
   if (t === 'mods') showModsTab('installed');
   if (t === 'files') FILES.load('.');
   if (t === 'schedule') SCHEDULE.load();
+  if (t === 'performance') PERF.load();
   if (t === 'players') PLAYERS.load();
   if (t === 'access') ACCESS.load();
   if (t === 'settings') SETTINGS.load().catch((err) => toast(err.message));
@@ -380,6 +384,20 @@ const SCHEDULE = MeowSchedule.mount({
   t: tr, esc, toast, fmtDate,
   confirm: (title, message, label) => confirmBox(title, message, label),
   isVisible: () => !$('tab-schedule').classList.contains('hidden'),
+});
+
+// --- performance ---
+
+const PERF = MeowCharts.mount({
+  el: $('perfRoot'),
+  load: (range) => api(`/api/instances/${current.id}/metrics?range=${range}`),
+  charts: [
+    { key: 'cpu', title: 'CPU', color: '#5f9ee8', format: (v) => `${v.toFixed(0)}%` },
+    { key: 'memMB', title: 'Memory', color: '#e87ab8', format: (v) => `${Math.round(v)} MB` },
+    { key: 'players', title: 'Players', color: '#6cc48a', format: (v) => String(Math.round(v)), minMax: 3 },
+  ],
+  t: tr, esc,
+  isVisible: () => !$('tab-performance').classList.contains('hidden'),
 });
 
 // --- players ---
