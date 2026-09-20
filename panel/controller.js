@@ -518,6 +518,11 @@ async function handleApi(req, res, url) {
       try { await b.api.restoreBackup(name, b.deps); } catch (err) { return json(res, 500, { error: err.message }); }
       return json(res, 200, { ok: true });
     }
+    if (name && !m[4] && method === 'GET') {
+      if (!fs.existsSync(file)) return json(res, 404, { error: 'backup not found' });
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${name}"`, 'Content-Length': fs.statSync(file).size });
+      return fs.createReadStream(file).pipe(res);
+    }
     if (name && method === 'DELETE') {
       if (!fs.existsSync(file)) return json(res, 404, { error: 'backup not found' });
       fs.unlinkSync(file);
