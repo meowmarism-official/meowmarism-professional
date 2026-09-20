@@ -1,7 +1,7 @@
 {
   "core": "meowmarism-core",
   "version": "0.0.0",
-  "commit": "00672b2a28e8fc185793619f31d833b47ae4581a",
+  "commit": "7d1d5fe6e4bb61ab0372bffbcba084fbb7e2291d",
   "files": [
     "LICENSE",
     "CONTRIBUTOR-AGREEMENT.md",
@@ -41,6 +41,9 @@
     "panel/core/ui/files-ui.css",
     "panel/core/ui/files-ui.js",
     "panel/core/ui/i18n.js",
+    "panel/core/ui/instance-pages.css",
+    "panel/core/ui/instance-shell.css",
+    "panel/core/ui/instance-shell.js",
     "panel/core/ui/instances-ui.js",
     "panel/core/ui/loaders.js",
     "panel/core/ui/login.css",

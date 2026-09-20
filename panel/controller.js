@@ -508,6 +508,11 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': CORE_TYPES[path.extname(file).slice(1)], 'Cache-Control': 'no-cache' });
       return fs.createReadStream(file).pipe(res);
     }
+    if (req.method === 'GET' && /^\/instance\/[a-f0-9]{8}(\/[a-z]*)?\/?$/.test(url.pathname)) {
+      if (!sessions.get(cookieToken(req))) { res.writeHead(302, { Location: '/' }); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'instance.html')));
+    }
     let entry = STATIC[url.pathname];
     if (url.pathname === '/' && !sessions.get(cookieToken(req))) entry = ['login.html', 'text/html; charset=utf-8'];
     if (req.method === 'GET' && entry) {
