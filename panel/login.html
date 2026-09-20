@@ -32,7 +32,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const errEl = document.getElementById('error');
   errEl.style.display = 'none';
   const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value }) });
-  if (r.ok) { location.href = '/'; return; }
+  if (r.ok) { location.reload(); return; }
   const d = await r.json().catch(() => ({}));
   errEl.textContent = window.t(d.error || 'Login failed');
   errEl.style.display = 'block';

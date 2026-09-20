@@ -39,6 +39,7 @@ const HOST_CPUS = os.cpus().length;
 const STATIC = {
   '/': ['index.html', 'text/html; charset=utf-8'],
 };
+const PANEL_PAGES = ['/server', '/users', '/settings', '/system', '/update'];
 const CORE_FILE = /^\/core\/(tokens\/tokens\.css|brand\/[\w.-]+\.(?:svg|png)|ui\/[\w.-]+\.(?:js|css))$/;
 const CORE_TYPES = { css: 'text/css; charset=utf-8', svg: 'image/svg+xml', png: 'image/png', js: 'application/javascript; charset=utf-8' };
 
@@ -574,8 +575,8 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
       return res.end(fs.readFileSync(path.join(__dirname, 'instance.html')));
     }
-    let entry = STATIC[url.pathname];
-    if (url.pathname === '/' && !sessions.get(cookieToken(req))) entry = ['login.html', 'text/html; charset=utf-8'];
+    let entry = STATIC[url.pathname] || (PANEL_PAGES.includes(url.pathname) ? STATIC['/'] : null);
+    if (entry && !sessions.get(cookieToken(req))) entry = ['login.html', 'text/html; charset=utf-8'];
     if (req.method === 'GET' && entry) {
       res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
       return res.end(fs.readFileSync(path.join(__dirname, entry[0])));

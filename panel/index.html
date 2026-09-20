@@ -125,6 +125,7 @@ const SHELL = MeowShell.mount({
   repo: 'meowmarism-official/meowmarism-professional',
   serverLabel: 'Instances',
   updateHint: 'Updating installs the newest release and restarts the panel. Your servers keep running in their containers.',
+  paths: { server: '/server', users: '/users', settings: '/settings', system: '/system', update: '/update' },
   urls: { version: '/api/version', update: '/api/update', updateStatus: '/api/update-status', settings: '/api/panel-settings', system: '/api/system-info' },
   t: tr, esc,
   confirm: (title, message, label) => confirmBox(title, message, label),
@@ -143,8 +144,8 @@ async function boot() {
   if (!system.docker.ok) { $('dockerBanner').textContent = 'Docker is not reachable: ' + system.docker.error; $('dockerBanner').classList.remove('hidden'); }
   $('newBtn').classList.toggle('hidden', !system.panel.create);
   SHELL.setAccount({ username: system.user, role: system.role, loggedIn: true }, system.panel);
-  const hash = location.hash.slice(1);
-  SHELL.showPage(['users', 'settings', 'update'].includes(hash) ? hash : 'server');
+  if (location.pathname === '/') history.replaceState({}, '', '/server');
+  SHELL.showPage(SHELL.pageFromPath(), { push: false });
 }
 
 
