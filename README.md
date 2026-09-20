@@ -6,8 +6,13 @@ Minecraft servers in Docker containers with hard CPU and memory limits, managed 
 - Hard CPU and memory limits through Docker (cgroups), changeable per instance
 - Vanilla, Paper, Purpur, Fabric, NeoForge and Forge
 - Live console, commands, start, stop, restart, kill
+- Files with an editor, mods and Modrinth browsing, world backups with restore, scheduler
+- `server.properties` editor, players with actions, whitelist, operators and bans
+- CPU, memory and player charts
+- Minecraft version upgrade with a world backup first and a rollback
+- Several accounts with permissions per instance, German, French and Spanish
 
-It shares the design (tokens and brand) with meowmarism LITE through meowmarism core. The panel code is separate.
+It shares its design, modules and interface pieces with meowmarism LITE through meowmarism core. Only the container runtime and the instance management are specific to PROFESSIONAL.
 
 ## Install
 
