@@ -166,7 +166,7 @@ function stateOf(i) {
 }
 
 MeowInstanceShell.mount({
-  edition: 'PRO', brandSub: '', base: BASE, panelLinks: true, backLabel: 'All instances', sync: false, history: false,
+  edition: 'PRO', brandSub: '', base: BASE, backLabel: 'All instances', sync: false, history: false,
   pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage'],
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
 });
@@ -415,8 +415,6 @@ async function start() {
   const list = await api('/api/instances?stats=1');
   current = list.find((x) => x.id === ID);
   if (!current) { location.href = '/'; return; }
-  $('navUsersLink').style.display = $('navSettingsLink').style.display = system.panel.users ? '' : 'none';
-  api('/api/version').then((v) => { if (v.version) $('sideVersion').textContent = `v${v.version} · `; $('updateDot').style.display = v.updateAvailable && system.panel.update ? '' : 'none'; }).catch(() => {});
   paint(current);
   showPage(location.pathname.split('/')[3] || 'overview', false);
   poll(); pollPlayers();
