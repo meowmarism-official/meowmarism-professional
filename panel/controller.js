@@ -15,6 +15,7 @@ const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
 const { createUsersApi } = require('./core/modules/users-api');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
+const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
 const { DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
@@ -125,9 +126,25 @@ const ACTION_CAP = {
   logs: 'console', command: 'console', players: 'console', access: 'console',
   start: 'power', stop: 'power', restart: 'power', kill: 'power',
   files: 'files', mods: 'mods', modrinth: 'mods', backups: 'backups',
-  settings: 'settings', schedule: 'settings', limits: 'settings', metrics: 'view',
+  settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
 };
 const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)) });
+
+const upgrades = createUpgrades({
+  save: (inst) => instances.save(instances.list().map((i) => (i.id === inst.id ? inst : i))),
+  isRunning: (inst) => runtimeFor(inst, OWNER).isRunning(),
+  backups: (inst) => backups.forInstance(inst, OWNER),
+  async recreate(inst, wasRunning) {
+    await refreshStates();
+    const old = runtimeFor(inst, OWNER);
+    if (old.isRunning()) await old.stopAsync();
+    await old.removeContainer();
+    forgetRuntime(inst.id);
+    const fresh = runtimeFor(inst, OWNER);
+    await fresh.createContainer();
+    if (wasRunning) await fresh.startAsync();
+  },
+});
 
 async function handleApi(req, res, url) {
   const method = req.method;
@@ -207,6 +224,7 @@ async function handleApi(req, res, url) {
     if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) {
       fs.rmSync(inst.dir, { recursive: true, force: true });
       fs.rmSync(path.join(DATA_DIR, 'metrics', `${inst.name}.json`), { force: true });
+      removeRecord(inst);
     }
     return json(res, 200, { ok: true });
   }
@@ -236,12 +254,28 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true });
   }
   if (method === 'POST' && ['start', 'stop', 'restart', 'kill'].includes(action)) {
+    if (upgrades.isBusy(inst)) return json(res, 409, { error: 'an upgrade is running' });
     if (action === 'start') await rt.startAsync();
     else if (action === 'stop') await rt.stopAsync();
     else if (action === 'kill') await rt.killAsync();
     else { await rt.stopAsync(); await rt.startAsync(); }
     if (action !== 'stop' && action !== 'kill') toolsFor(inst).props.clearPending();
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'upgrade') {
+    if (method === 'GET') {
+      const versions = await listVersions(inst.type).catch(() => []);
+      return json(res, 200, { ...upgrades.status(inst), versions });
+    }
+    if (method === 'POST') {
+      const data = await readBody(req);
+      try {
+        if (m[3] === 'rollback') await upgrades.rollback(inst, data.restoreWorld === true);
+        else await upgrades.upgrade(inst, String(data.version || ''), data.allowDowngrade === true);
+        return json(res, 202, { ok: true });
+      } catch (err) { return json(res, err.status || 400, { ok: false, error: err.message }); }
+    }
   }
 
   if (action === 'metrics' && method === 'GET') {

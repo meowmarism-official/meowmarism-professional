@@ -127,13 +127,22 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
         <button class="btn" id="bStart">Start</button><button class="btn" id="bStop">Stop</button><button class="btn" id="bRestart">Restart</button><button class="btn danger" id="bKill">Kill</button></div>
       <p class="sub" id="dSub"></p>
-      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="performance">Performance</button><button data-tab="players">Players</button><button data-tab="access">Access</button><button data-tab="settings">Settings</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
+      <div class="tabs"><button data-tab="console" class="on">Console</button><button data-tab="files">Files</button><button data-tab="schedule">Scheduler</button><button data-tab="performance">Performance</button><button data-tab="players">Players</button><button data-tab="access">Access</button><button data-tab="settings">Settings</button><button data-tab="mods">Mods</button><button data-tab="backups">Backups</button><button data-tab="version">Version</button><button data-tab="limits">Limits</button><button data-tab="danger">Delete</button></div>
 
       <div id="tab-console">
         <div class="grid2" style="margin-bottom:14px"><div class="card stat"><b id="sCpu">-</b><span>CPU (limit <span id="sCpuLim"></span>)</span></div><div class="card stat"><b id="sMem">-</b><span>Memory (limit <span id="sMemLim"></span>)</span></div></div>
         <div id="console"></div>
         <form class="cmd" id="cmdForm"><input class="input" id="cmdIn" placeholder="Send a command, for example: say hello" autocomplete="off"><button class="btn">Send</button></form>
       </div>
+      <div id="tab-version" class="hidden"><div class="card" style="padding:18px">
+        <div class="card-title">Minecraft version</div>
+        <p class="hint" id="verCurrent" style="margin:4px 0 12px"></p>
+        <p class="hint">A world backup is taken first, the container is recreated on the new version, and you can roll back afterwards.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0"><select class="input" id="verSelect" style="max-width:220px"></select>
+          <button class="btn primary" id="verUpgrade">Upgrade</button><button class="btn hidden" id="verRollback">Roll back</button></div>
+        <p class="hint" id="verLast"></p>
+        <pre id="verLog" class="hidden" style="background:#0c0d0f;border:1px solid var(--line);border-radius:var(--radius);padding:10px;max-height:220px;overflow:auto;font-size:12.5px;white-space:pre-wrap"></pre>
+      </div></div>
       <div id="tab-performance" class="hidden"><div id="perfRoot"></div></div>
       <div id="tab-players" class="hidden"><div id="playersRoot"></div></div>
       <div id="tab-access" class="hidden"><div id="accessRoot"></div></div>
@@ -290,7 +299,7 @@ async function showDetail(id) {
   $('listView').classList.add('hidden'); $('detailView').classList.remove('hidden');
   MR.reset(); paintDetail(current); applyCaps(current.caps); setTab(['console', 'performance'].find((t) => current.caps.includes(TAB_CAP[t])) || 'performance'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
 }
-const TAB_CAP = { console: 'console', files: 'files', schedule: 'settings', performance: 'view', players: 'console', access: 'console', settings: 'settings', mods: 'mods', backups: 'backups', limits: 'settings', danger: 'remove' };
+const TAB_CAP = { console: 'console', files: 'files', schedule: 'settings', performance: 'view', players: 'console', access: 'console', settings: 'settings', mods: 'mods', backups: 'backups', limits: 'settings', version: 'settings', danger: 'remove' };
 function applyCaps(caps) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('hidden', !caps.includes(TAB_CAP[b.dataset.tab]));
   const power = caps.includes('power');
@@ -316,12 +325,13 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'files', 'schedule', 'performance', 'players', 'access', 'settings', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'files', 'schedule', 'version', 'performance', 'players', 'access', 'settings', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
   if (t === 'backups') loadBackups();
   if (t === 'mods') showModsTab('installed');
   if (t === 'files') FILES.load('.');
   if (t === 'schedule') SCHEDULE.load();
+  if (t === 'version') loadVersion();
   if (t === 'performance') PERF.load();
   if (t === 'players') PLAYERS.load();
   if (t === 'access') ACCESS.load();
@@ -415,6 +425,39 @@ const USERS = MeowUsers.mount({
   t: tr, esc, toast,
   confirm: (title, message, label) => confirmBox(title, message, label),
 });
+
+// --- version ---
+let verTimer = null;
+async function loadVersion() {
+  clearTimeout(verTimer);
+  if (!current) return;
+  let d;
+  try { d = await api(`/api/instances/${current.id}/upgrade`); } catch (err) { return toast(err.message); }
+  $('verCurrent').textContent = `${d.current.type.toLowerCase()} ${d.current.version}`;
+  const sel = $('verSelect');
+  if (!sel.dataset.for || sel.dataset.for !== current.id + d.current.version) {
+    sel.innerHTML = d.versions.map((v) => `<option>${esc(v)}</option>`).join('');
+    sel.value = d.current.version; sel.dataset.for = current.id + d.current.version;
+  }
+  const l = d.latest;
+  $('verLast').textContent = l ? (l.rolledBack ? tr('Last upgrade was rolled back.') : tr('Last upgrade: Minecraft {from} to {to}.', { from: l.from, to: l.to })) : '';
+  $('verRollback').classList.toggle('hidden', !l || l.rolledBack);
+  $('verUpgrade').disabled = $('verRollback').disabled = d.running;
+  $('verLog').classList.toggle('hidden', !d.lines.length);
+  $('verLog').textContent = d.lines.join(String.fromCharCode(10));
+  if (d.running) verTimer = setTimeout(loadVersion, 1500);
+}
+$('verUpgrade').onclick = async () => {
+  const version = $('verSelect').value;
+  const down = current && version && version.localeCompare(current.version, undefined, { numeric: true }) < 0;
+  if (down && !(await confirmBox('Go to an older version?', 'Going to an older Minecraft version can damage the world.', 'Downgrade'))) return;
+  if (!(await confirmBox('Upgrade the server?', `The server is stopped and recreated on Minecraft ${version}. A world backup is taken first.`, 'Upgrade'))) return;
+  try { await api(`/api/instances/${current.id}/upgrade`, { method: 'POST', body: { version, allowDowngrade: !!down } }); loadVersion(); } catch (err) { toast(err.message); }
+};
+$('verRollback').onclick = async () => {
+  if (!(await confirmBox('Roll back the upgrade?', 'This restores the previous version and the world from the backup taken before the upgrade. Everything played since is lost.', 'Roll back'))) return;
+  try { await api(`/api/instances/${current.id}/upgrade/rollback`, { method: 'POST', body: { restoreWorld: true } }); loadVersion(); } catch (err) { toast(err.message); }
+};
 
 // --- performance ---
 
