@@ -21,7 +21,8 @@ die()  { printf "${C_RED}error:${C_RESET} %s\n" "$1" >&2; exit 1; }
 REPO="meowmarism-official/meowmarism-professional"
 INSTALL_DIR="${MEOWMARISM_DIR:-/opt/meowmarism-pro}"
 SERVICE_NAME="${MEOWMARISM_SERVICE:-meowmarism-pro}"
-CONTROLLER_PORT="${MEOWMARISM_PORT:-8090}"
+CONTROLLER_PORT="${MEOWMARISM_PORT:-}"
+DEFAULT_PORT=8090
 MARKER="# meowmarism-professional"
 NODE_MAJOR_NEEDED=20
 
@@ -85,6 +86,23 @@ if [ -z "${MEOWMARISM_SRC:-}" ]; then
 fi
 LATEST_VERSION="${TAG#v}"
 
+port_in_use() { ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1$"; }
+free_port_from() { local p="$1"; while port_in_use "$p"; do p=$((p + 1)); done; echo "$p"; }
+
+# Asks for the panel port. $1 is the suggested port; an empty answer takes it.
+ask_port() {
+  local suggest="$1" a
+  while true; do
+    printf "    Port for the panel [%s]: " "$suggest"
+    a="$(ask)"; printf "
+"
+    a="${a:-$suggest}"
+    if ! printf '%s' "$a" | grep -Eq '^[0-9]{4,5}$' || [ "$a" -lt 1024 ] || [ "$a" -gt 65535 ]; then warn "Use a number between 1024 and 65535."; continue; fi
+    if port_in_use "$a" && [ "$a" != "${CURRENT_PORT:-}" ]; then warn "Port $a is already in use on this host."; continue; fi
+    CONTROLLER_PORT="$a"; return
+  done
+}
+
 set_owner() {
   local MODE="$1" DIR="$2" ADMIN_USER="" ADMIN_PASS="" ADMIN_PASS2=""
   [ -r "$TTY" ] || die "no terminal to ask for the owner account"
@@ -127,6 +145,7 @@ for f in /etc/systemd/system/*.service; do
   if grep -q "^${MARKER}" "$f" 2>/dev/null; then
     EXISTING_SERVICE="$(basename "$f" .service)"
     EXISTING_DIR="$(sed -n 's/^WorkingDirectory=\(.*\)\/panel$/\1/p' "$f" | head -1)"
+    CURRENT_PORT="$(sed -n 's/^Environment=CONTROLLER_PORT=\([0-9]*\)$/\1/p' "$f" | head -1)"
     break
   fi
 done
@@ -140,7 +159,7 @@ if [ -n "$EXISTING_SERVICE" ]; then
   if [ "$UPDATE_AVAILABLE" = "1" ]; then printf "    ${C_YELLOW}[U]${C_RESET}pdate / ${C_YELLOW}[M]${C_RESET}ore options / ${C_YELLOW}[C]${C_RESET}ancel? "; else printf "    ${C_YELLOW}[M]${C_RESET}ore options / ${C_YELLOW}[C]${C_RESET}ancel? "; fi
   choice="$(ask)"
   if [ "${choice:0:1}" = "m" ] || [ "${choice:0:1}" = "M" ]; then
-    printf "    ${C_YELLOW}[O]${C_RESET}wner reset / ${C_YELLOW}[R]${C_RESET}emove / ${C_YELLOW}[C]${C_RESET}ancel? "
+    printf "    ${C_YELLOW}[O]${C_RESET}wner reset / ${C_YELLOW}[P]${C_RESET}ort / ${C_YELLOW}[R]${C_RESET}emove / ${C_YELLOW}[C]${C_RESET}ancel? "
     choice="$(ask)"
   fi
   case "${choice:0:1}" in
@@ -180,6 +199,7 @@ if [ -n "$EXISTING_SERVICE" ]; then
       step "Updating existing install"
       INSTALL_DIR="$EXISTING_DIR"
       SERVICE_NAME="$EXISTING_SERVICE"
+      [ -n "${MEOWMARISM_PORT:-}" ] || CONTROLLER_PORT="${CURRENT_PORT:-$DEFAULT_PORT}"
       ;;
     *) warn "Cancelled - nothing changed."; exit 0 ;;
   esac
@@ -204,7 +224,14 @@ sudo chown -R "$(whoami)" "$INSTALL_DIR"
 
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 FRESH=1; [ -f "$SERVICE_FILE" ] && FRESH=0
-if [ "$FRESH" = "1" ]; then set_owner create "$INSTALL_DIR"; fi
+if [ "$FRESH" = "1" ]; then
+  if [ -z "$CONTROLLER_PORT" ]; then
+    step "Choose the panel port"
+    if [ -r "$TTY" ]; then ask_port "$(free_port_from "$DEFAULT_PORT")"; else CONTROLLER_PORT="$(free_port_from "$DEFAULT_PORT")"; fi
+  fi
+  set_owner create "$INSTALL_DIR"
+fi
+[ -n "$CONTROLLER_PORT" ] || CONTROLLER_PORT="${CURRENT_PORT:-$DEFAULT_PORT}"
 
 step "Writing $SERVICE_FILE"
 sudo tee "$SERVICE_FILE" > /dev/null <<EOF
