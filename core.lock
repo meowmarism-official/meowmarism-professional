@@ -1,7 +1,7 @@
 {
   "core": "meowmarism-core",
   "version": "0.0.0",
-  "commit": "7d1d5fe6e4bb61ab0372bffbcba084fbb7e2291d",
+  "commit": "911934e93f588747a0bb7a976fb883bc6abab70e",
   "files": [
     "LICENSE",
     "CONTRIBUTOR-AGREEMENT.md",
@@ -58,6 +58,7 @@
     "panel/core/ui/sidebar.css",
     "panel/core/ui/users-ui.css",
     "panel/core/ui/users-ui.js",
+    "panel/core/ui/wizard-ui.js",
     "panel/core/lang/de.json",
     "panel/core/lang/es.json",
     "panel/core/lang/fr.json"

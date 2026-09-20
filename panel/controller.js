@@ -164,6 +164,46 @@ const upgrades = createUpgrades({
   },
 });
 
+// Creating a container can take minutes on the first run (image download), so it runs in the background with a log.
+let createJob = null;
+function createInstanceInBackground(inst) {
+  const job = { lines: [], progress: 5, done: false, error: null, name: inst.name };
+  createJob = job;
+  const log = (line) => job.lines.push(line);
+  (async () => {
+    const rt = runtimeFor(inst, OWNER);
+    log('Creating the container (the first start downloads the Docker image)');
+    await rt.createContainer();
+    job.progress = 30;
+    log('Starting the server');
+    await rt.startAsync();
+    job.progress = 45;
+    backups.forInstance(inst, OWNER);
+    const seen = new Set();
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!instances.list().some((i) => i.id === inst.id)) throw new Error('the instance was removed');
+      await refreshStates();
+      const st = stateCache.states[docker.containerName(inst)];
+      const text = await rt.logs(30).catch(() => '');
+      for (const l of text.split(String.fromCharCode(10))) if (l.trim() && !seen.has(l)) { seen.add(l); log(l); }
+      job.progress = Math.min(95, 45 + seen.size);
+      if (st && st.state === 'running' && st.health === 'healthy') return;
+      if (st && (st.state === 'exited' || st.state === 'dead')) throw new Error('the server stopped while starting, see the log');
+    }
+    throw new Error('the server did not become ready in time');
+  })().then(() => { job.progress = 100; job.done = true; })
+    .catch(async (err) => {
+      job.error = err.message || 'creation failed'; job.done = true;
+      const rt = runtimeFor(inst, OWNER);
+      await rt.removeContainer().catch(() => {});
+      forgetRuntime(inst.id);
+      instances.save(instances.list().filter((i) => i.id !== inst.id));
+      fs.rmSync(inst.dir, { recursive: true, force: true });
+    });
+}
+
 async function handleApi(req, res, url) {
   const method = req.method;
   const p = url.pathname;
@@ -220,26 +260,28 @@ async function handleApi(req, res, url) {
     const withStats = url.searchParams.get('stats') === '1';
     return json(res, 200, instances.list().filter((i) => effectiveCaps(me, i.name).includes('view')).map((i) => publicInstance(i, stateCache.states[docker.containerName(i)], withStats ? stateCache.stats[docker.containerName(i)] : null, effectiveCaps(me, i.name))));
   }
+  if (p === '/api/create-log' && method === 'GET') {
+    if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed' });
+    return json(res, 200, createJob || { lines: [], progress: 0, done: true, error: null, name: null });
+  }
   if (p === '/api/instances' && method === 'POST') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
-    const { spec, error } = validateSpec(await readBody(req), null);
+    if (createJob && !createJob.done) return json(res, 409, { error: 'another instance is being created' });
+    const body = await readBody(req);
+    const { spec, error } = validateSpec(body, null);
     if (error) return json(res, 400, { error });
     const list = instances.list();
     if (list.some((i) => i.name === spec.name)) return json(res, 409, { error: 'an instance with this name exists' });
     if (list.some((i) => i.port === spec.port) || !(await portFree(spec.port))) return json(res, 409, { error: `port ${spec.port} is in use` });
     const inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, createdAt: Date.now() };
     inst.dir = path.join(INSTANCES_DIR, inst.name);
+    const hours = Number(body.backupIntervalHours), keep = Number(body.maxBackups);
+    if (Number.isFinite(hours) && hours >= 0.25 && hours <= 168 && Number.isInteger(keep) && keep >= 1 && keep <= 100) inst.backup = { backupIntervalHours: hours, maxBackups: keep };
     fs.mkdirSync(inst.dir, { recursive: true });
-    const rt = runtimeFor(inst, OWNER);
-    try { await rt.createContainer(); await rt.startAsync(); } catch (err) {
-      await rt.removeContainer();
-      forgetRuntime(inst.id);
-      return json(res, 500, { error: err.message });
-    }
     list.push(inst);
     instances.save(list);
-    backups.forInstance(inst, OWNER);
-    return json(res, 201, { ok: true, id: inst.id });
+    createInstanceInBackground(inst);
+    return json(res, 201, { ok: true, id: inst.id, name: inst.name });
   }
 
   const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?(?:\/([\w.-]+))?(?:\/(restore|run))?$/.exec(p);

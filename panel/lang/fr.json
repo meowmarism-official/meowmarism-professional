@@ -56,7 +56,16 @@
   "Going to an older Minecraft version can damage the world.": "Passer à une version plus ancienne de Minecraft peut endommager le monde.",
   "Upgrade the server?": "Mettre à niveau le serveur ?",
   "This restores the previous version and the world from the backup taken before the upgrade. Everything played since is lost.": "Cela restaure la version précédente et le monde depuis la sauvegarde faite avant la mise à niveau. Tout ce qui a été joué depuis est perdu.",
-  "Updating installs the newest release and restarts the panel. Your servers keep running in their containers.": "La mise à jour installe la dernière version et redémarre le panneau. Vos serveurs continuent de tourner dans leurs conteneurs."
+  "Updating installs the newest release and restarts the panel. Your servers keep running in their containers.": "La mise à jour installe la dernière version et redémarre le panneau. Vos serveurs continuent de tourner dans leurs conteneurs.",
+  "Server type": "Type de serveur",
+  "Name: 1-32 letters, digits, - or _": "Nom : 1-32 lettres, chiffres, - ou _",
+  "Version must look like 1.21.1": "La version doit ressembler à 1.21.1",
+  "Enter a valid port (1024-65535)": "Saisissez un port valide (1024-65535)",
+  "Give it at least 512 MB": "Donnez-lui au moins 512 Mo",
+  "Give it at least 0.25 CPUs": "Donnez-lui au moins 0,25 CPU",
+  "Hard limits enforced by Docker. The Java heap is set below the memory limit automatically.": "Limites strictes appliquées par Docker. Le tas Java est réglé automatiquement sous la limite de mémoire.",
+  "Creating the container (the first start downloads the Docker image)": "Création du conteneur (le premier démarrage télécharge l’image Docker)",
+  "Starting the server": "Démarrage du serveur"
  },
  "patterns": []
 }
