@@ -173,6 +173,7 @@ function createInstanceInBackground(inst) {
   (async () => {
     const rt = runtimeFor(inst, OWNER);
     log('Creating the container (the first start downloads the Docker image)');
+    await rt.removeContainer();
     await rt.createContainer();
     job.progress = 30;
     log('Starting the server');
@@ -193,7 +194,10 @@ function createInstanceInBackground(inst) {
       if (st && (st.state === 'exited' || st.state === 'dead')) throw new Error('the server stopped while starting, see the log');
     }
     throw new Error('the server did not become ready in time');
-  })().then(() => { job.progress = 100; job.done = true; })
+  })().then(() => {
+    job.progress = 100; job.done = true;
+    instances.save(instances.list().map((i) => { if (i.id === inst.id) delete i.creating; return i; }));
+  })
     .catch(async (err) => {
       job.error = err.message || 'creation failed'; job.done = true;
       const rt = runtimeFor(inst, OWNER);
@@ -273,7 +277,7 @@ async function handleApi(req, res, url) {
     const list = instances.list();
     if (list.some((i) => i.name === spec.name)) return json(res, 409, { error: 'an instance with this name exists' });
     if (list.some((i) => i.port === spec.port) || !(await portFree(spec.port))) return json(res, 409, { error: `port ${spec.port} is in use` });
-    const inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, createdAt: Date.now() };
+    const inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, createdAt: Date.now(), creating: true };
     inst.dir = path.join(INSTANCES_DIR, inst.name);
     const hours = Number(body.backupIntervalHours), keep = Number(body.maxBackups);
     if (Number.isFinite(hours) && hours >= 0.25 && hours <= 168 && Number.isInteger(keep) && keep >= 1 && keep <= 100) inst.backup = { backupIntervalHours: hours, maxBackups: keep };
@@ -336,10 +340,14 @@ async function handleApi(req, res, url) {
   }
   if (method === 'POST' && ['start', 'stop', 'restart', 'kill'].includes(action)) {
     if (upgrades.isBusy(inst)) return json(res, 409, { error: 'an upgrade is running' });
+    if (action === 'start' || action === 'restart') {
+      await refreshStates();
+      if (!stateCache.states[docker.containerName(inst)]) await rt.createContainer();
+    }
     if (action === 'start') await rt.startAsync();
     else if (action === 'stop') await rt.stopAsync();
     else if (action === 'kill') await rt.killAsync();
-    else { await rt.stopAsync(); await rt.startAsync(); }
+    else { if (rt.isRunning()) await rt.stopAsync(); await rt.startAsync(); }
     if (action !== 'stop' && action !== 'kill') toolsFor(inst).props.clearPending();
     return json(res, 200, { ok: true });
   }
@@ -570,6 +578,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 startPolling();
+// A creation that was interrupted by a restart of the panel is resumed.
+for (const inst of instances.list()) if (inst.creating && !createJob) createInstanceInBackground(inst);
 setInterval(() => schedule.tick(OWNER), 20000).unref();
 for (const inst of instances.list()) backups.forInstance(inst, OWNER);
 

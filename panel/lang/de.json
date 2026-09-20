@@ -53,7 +53,9 @@
   "Give it at least 0.25 CPUs": "Gib mindestens 0,25 CPUs",
   "Hard limits enforced by Docker. The Java heap is set below the memory limit automatically.": "Feste Grenzen, die Docker durchsetzt. Der Java-Heap wird automatisch unter dem Speicherlimit gesetzt.",
   "Creating the container (the first start downloads the Docker image)": "Container wird erstellt (beim ersten Start wird das Docker-Image geladen)",
-  "Starting the server": "Server wird gestartet"
+  "Starting the server": "Server wird gestartet",
+  "The Docker container does not exist. Press Start to create it again.": "Der Docker-Container existiert nicht. Drücke Start, um ihn neu zu erstellen.",
+  "Not created": "Nicht erstellt"
  },
  "patterns": []
 }

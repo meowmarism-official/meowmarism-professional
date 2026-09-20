@@ -179,17 +179,22 @@ async function api(path, opts = {}) {
 }
 function stateOf(i) {
   if (i.state === 'running') return i.health === 'healthy' ? ['ready', 'Running'] : ['starting', 'Starting'];
-  if (i.state === 'missing') return ['error', 'Container missing'];
+  if (i.state === 'missing') return ['error', 'Not created'];
   if (i.state === 'created' || i.state === 'exited') return ['', 'Stopped'];
   return ['starting', i.state];
 }
 
 MeowInstanceShell.mount({
-  edition: 'PRO', brandSub: '', base: BASE, backLabel: 'All instances', sync: false, history: false,
+  edition: 'PRO', brandSub: '', base: BASE, panelLinks: true, backLabel: 'All instances', sync: false, history: false,
   pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage'],
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
 });
 $('backToController').href = '/';
+async function visitExternal(url, what) {
+  if (await confirmBox('Leave this panel?', `Do you want to visit ${what}? This opens in a new tab.`, 'Visit')) window.open(url, '_blank', 'noopener');
+}
+$('navGhLink').onclick = (e) => { e.preventDefault(); visitExternal('https://github.com/meowmarism-official/meowmarism-professional', 'our GitHub'); };
+$('sideLicenseLink').onclick = (e) => { e.preventDefault(); visitExternal('https://github.com/meowmarism-official/meowmarism-professional/blob/master/LICENSE', 'the license on GitHub'); };
 
 function showPage(page, push) {
   if (!PAGE_META[page] || !current || !current.caps.includes(PAGE_CAP[page])) page = 'overview';
@@ -465,6 +470,8 @@ async function start() {
   const list = await api('/api/instances?stats=1');
   current = list.find((x) => x.id === ID);
   if (!current) { location.href = '/'; return; }
+  $('navUsersLink').style.display = $('navSettingsLink').style.display = system.panel.users ? '' : 'none';
+  api('/api/version').then((v) => { if (v.version) $('sideVersion').textContent = `v${v.version} · `; $('updateDot').style.display = v.updateAvailable && system.panel.update ? '' : 'none'; }).catch(() => {});
   paint(current);
   showPage(location.pathname.split('/')[3] || 'overview', false);
   poll(); pollPlayers();

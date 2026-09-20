@@ -141,13 +141,14 @@ async function boot() {
   if (!system.docker.ok) { $('dockerBanner').textContent = 'Docker is not reachable: ' + system.docker.error; $('dockerBanner').classList.remove('hidden'); }
   $('newBtn').classList.toggle('hidden', !system.panel.create);
   SHELL.setAccount({ username: system.user, role: system.role, loggedIn: true }, system.panel);
-  SHELL.showPage('server');
+  const hash = location.hash.slice(1);
+  SHELL.showPage(['users', 'settings', 'update'].includes(hash) ? hash : 'server');
 }
 
 
 function stateOf(i) {
   if (i.state === 'running') return i.health === 'healthy' ? ['on', 'Running'] : ['mid', 'Starting'];
-  if (i.state === 'missing') return ['err', 'Container missing'];
+  if (i.state === 'missing') return ['err', 'Not created'];
   if (i.state === 'created' || i.state === 'exited') return ['', 'Stopped'];
   return ['mid', i.state];
 }
@@ -159,6 +160,7 @@ function instCard(i) {
   return {
     name: i.name, loader: i.type.toLowerCase(), mcVersion: i.version, port: i.port, running,
     pill: { dot: cls || 'off', label: label }, cpuPercent: i.cpuUsage, rssMB: memMB,
+    error: i.state === 'missing' ? tr('The Docker container does not exist. Press Start to create it again.') : '',
     canOpen: true, canManage: i.caps.includes('power'), openAttr: `href="/instance/${esc(i.id)}/overview"`, id: i.id,
   };
 }
