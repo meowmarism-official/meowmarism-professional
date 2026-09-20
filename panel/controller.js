@@ -399,6 +399,17 @@ const server = http.createServer(async (req, res) => {
       }
       return await handleApi(req, res, url);
     }
+    const lang = req.method === 'GET' && /^\/lang\/(de|fr|es)\.json$/.exec(url.pathname);
+    if (lang) {
+      const read = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, dir, `${lang[1]}.json`), 'utf8')); } catch (_) { return { dict: {}, patterns: [] }; } };
+      const base = read('core/lang'), own = read('lang');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(JSON.stringify({ dict: { ...base.dict, ...own.dict }, patterns: [...(base.patterns || []), ...(own.patterns || [])] }));
+    }
+    if (req.method === 'GET' && url.pathname === '/i18n.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' });
+      return res.end(fs.readFileSync(path.join(__dirname, 'core', 'ui', 'i18n.js')));
+    }
     const core = req.method === 'GET' && CORE_FILE.exec(url.pathname);
     if (core) {
       const file = path.join(__dirname, 'core', core[1]);

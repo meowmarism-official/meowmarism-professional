@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>meowmarism PROFESSIONAL</title>
 <link rel="icon" type="image/svg+xml" href="/core/brand/logo.svg">
+<script src="/i18n.js"></script>
 <link rel="stylesheet" href="/core/tokens/tokens.css">
 <link rel="stylesheet" href="/core/ui/modrinth-ui.css">
 <link rel="stylesheet" href="/core/ui/files-ui.css">
@@ -101,11 +102,12 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
     <label class="f"><span>Password</span><input class="input" id="lp" type="password" autocomplete="current-password"></label>
     <p class="err" id="lerr"></p>
     <button class="btn primary" style="width:100%">Sign in</button>
+    <p style="text-align:center;margin:14px 0 0"><a href="#" data-lang-toggle data-no-i18n class="hint" style="text-decoration:none"><span data-lang-label></span></a></p>
   </form>
 </div>
 
 <div id="app" class="hidden">
-  <nav class="rail"><img src="/core/brand/logo.svg" alt=""><div class="grow"></div><button class="btn" id="logout" title="Sign out">&#x2192;</button></nav>
+  <nav class="rail"><img src="/core/brand/logo.svg" alt=""><div class="grow"></div><button class="btn" data-lang-toggle title="Language"><svg viewBox="0 0 24 16" width="20" height="14"></svg><span data-lang-label data-no-i18n hidden></span></button><button class="btn" id="logout" title="Sign out">&#x2192;</button></nav>
   <main>
     <div id="dockerBanner" class="banner hidden"></div>
 
@@ -179,7 +181,7 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const tr = (text, vars) => (vars ? String(text).replace(/\{(\w+)\}/g, (_, k) => vars[k]) : text);
+const tr = window.t;
 let system = null, current = null, listTimer = null, logTimer = null;
 
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3500); }
