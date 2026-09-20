@@ -58,6 +58,7 @@ const sessions = (() => {
       return s;
     },
     destroy(token) { map.delete(key(token)); persist(); },
+    destroyUser(username) { for (const [k, s] of map) if (s.username === username) map.delete(k); persist(); },
   };
 })();
 

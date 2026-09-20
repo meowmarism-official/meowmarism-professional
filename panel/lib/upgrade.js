@@ -81,7 +81,7 @@ function createUpgrades(deps) {
       const before = await newestBackup(b);
       const ok = await b.api.createBackup('pre-upgrade', b.deps);
       const backup = ok ? await newestBackup(b) : null;
-      if (!ok && fs.existsSync(path.join(inst.dir, 'world'))) throw new Error('backup failed, nothing was changed');
+      if (!ok && b.api.worldDirNames().length) throw new Error('backup failed, nothing was changed');
       log(backup && backup !== before ? `backup done: ${backup}` : 'no world yet, nothing to back up');
       writeRecord(inst, { at: Date.now(), from: inst.version, to: version, backup: backup !== before ? backup : null, rolledBack: false });
       log(`recreating the container on Minecraft ${version}`);

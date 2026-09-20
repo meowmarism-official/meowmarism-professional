@@ -3,5 +3,8 @@
   "version": "0.1.8",
   "description": "Minecraft servers in Docker containers with hard CPU and memory limits",
   "license": "SEE LICENSE IN LICENSE",
-  "private": true
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
 }

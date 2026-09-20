@@ -19,6 +19,7 @@ const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const systemInfo = require('./core/modules/system-info');
 const events = require('./lib/events');
+const schedulerCore = require('./core/modules/scheduler');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
@@ -63,17 +64,7 @@ function cookieToken(req) {
   return m ? m[1] : null;
 }
 
-const attempts = new Map();
-function throttled(key) {
-  const a = attempts.get(key);
-  return a && a.until > Date.now() ? Math.ceil((a.until - Date.now()) / 1000) : 0;
-}
-function failed(key) {
-  const a = attempts.get(key) || { n: 0, until: 0 };
-  a.n += 1;
-  if (a.n >= 3) a.until = Date.now() + Math.min(15 * 60 * 1000, 5000 * 2 ** (a.n - 3));
-  attempts.set(key, a);
-}
+const loginLimiter = require('./core/modules/ratelimit').createLoginLimiter();
 
 const portFree = (port) => new Promise((resolve) => {
   const s = net.createServer();
@@ -157,7 +148,7 @@ const ACTION_CAP = {
   files: 'files', mods: 'mods', modrinth: 'mods', backups: 'backups',
   events: 'settings', settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
 };
-const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)) });
+const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)), revokeSessions: (u) => sessions.destroyUser(u) });
 
 const upgrades = createUpgrades({
   save: (inst) => instances.save(instances.list().map((i) => (i.id === inst.id ? inst : i))),
@@ -177,6 +168,7 @@ const upgrades = createUpgrades({
 
 // Creating a container can take minutes on the first run (image download), so it runs in the background with a log.
 let createJob = null;
+let creatingNow = false;
 function createInstanceInBackground(inst) {
   const job = { lines: [], progress: 5, done: false, error: null, name: inst.name };
   createJob = job;
@@ -226,12 +218,12 @@ async function handleApi(req, res, url) {
   if (p === '/api/login' && method === 'POST') {
     const data = await readBody(req);
     const username = String(data.username || '').slice(0, 64);
-    const key = `${clientIp(req)}|${username}`;
-    const wait = throttled(key);
-    if (wait) return json(res, 429, { error: `too many attempts, wait ${wait}s` });
+    const ip = clientIp(req);
+    const gate = loginLimiter.check(ip, username);
+    if (!gate.allowed) return json(res, 429, { error: `too many attempts, wait ${gate.retryAfterSec}s` });
     const user = users.verify(username, String(data.password || ''));
-    if (!user) { failed(key); return json(res, 401, { error: 'wrong username or password' }); }
-    attempts.delete(key);
+    if (!user) { loginLimiter.fail(ip, username); return json(res, 401, { error: 'wrong username or password' }); }
+    loginLimiter.success(ip, username);
     const token = sessions.create(user);
     res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${SECURE_COOKIE || isHttps(req) ? '; Secure' : ''}`);
     return json(res, 200, { ok: true });
@@ -286,7 +278,9 @@ async function handleApi(req, res, url) {
   }
   if (p === '/api/instances' && method === 'POST') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
-    if (createJob && !createJob.done) return json(res, 409, { error: 'another instance is being created' });
+    if (creatingNow || (createJob && !createJob.done)) return json(res, 409, { error: 'another instance is being created' });
+    creatingNow = true;
+    try {
     const body = await readBody(req);
     const { spec, error } = validateSpec(body, null);
     if (error) return json(res, 400, { error });
@@ -302,6 +296,7 @@ async function handleApi(req, res, url) {
     instances.save(list);
     createInstanceInBackground(inst);
     return json(res, 201, { ok: true, id: inst.id, name: inst.name });
+    } finally { creatingNow = false; }
   }
 
   const m = /^\/api\/instances\/([a-f0-9]{8})(?:\/([a-z-]+))?(?:\/([\w.-]+))?(?:\/(restore|run))?$/.exec(p);
@@ -490,13 +485,10 @@ async function handleApi(req, res, url) {
       }
       if (m[3] === 'upload' && method === 'POST') {
         const dest = fl.uploadTarget(rel, url.searchParams.get('name') || '');
-        let size = 0;
-        const out = fs.createWriteStream(dest);
-        req.on('data', (chunk) => { size += chunk.length; if (size > fl.MAX_UPLOAD_BYTES) { req.destroy(); out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} } });
-        req.on('error', () => { out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} });
-        req.pipe(out);
-        out.on('finish', () => json(res, 200, { ok: true, name: url.searchParams.get('name'), sizeMB: +(size / 1024 / 1024).toFixed(2) }));
-        out.on('error', (err) => json(res, 500, { ok: false, error: err.message }));
+        fl.receiveUpload(req, dest, (err, size) => {
+          if (err) return json(res, err.status || 500, { ok: false, error: err.message });
+          json(res, 200, { ok: true, name: url.searchParams.get('name'), sizeMB: +(size / 1024 / 1024).toFixed(2) });
+        });
         return;
       }
       if (!m[3] && method === 'DELETE') { fl.remove(rel); return json(res, 200, { ok: true }); }
@@ -507,9 +499,27 @@ async function handleApi(req, res, url) {
     const bad = (err) => json(res, 400, { ok: false, error: err.message });
     try {
       if (!m[3] && method === 'GET') return json(res, 200, schedule.list(inst));
-      if (!m[3] && method === 'POST') { schedule.save(inst, await readBody(req)); return json(res, 200, { ok: true }); }
-      if (m[3] && m[4] === 'run' && method === 'POST') return json(res, 200, { ok: true, result: schedule.run(inst, OWNER, m[3]) });
-      if (m[3] && !m[4] && method === 'DELETE') { schedule.remove(inst, m[3]); return json(res, 200, { ok: true }); }
+      const denied = (type) => {
+        const need = schedulerCore.ACTION_CAP[type];
+        if (need && caps.includes(need)) return false;
+        json(res, 403, { ok: false, error: `missing permission: ${need || 'unknown action'}` });
+        return true;
+      };
+      const stored = (id) => (inst.schedule || []).find((t) => t.id === id);
+      if (!m[3] && method === 'POST') {
+        const body = await readBody(req);
+        const old = body.id && stored(body.id);
+        if (denied(body.action && body.action.type) || (old && denied(old.action.type))) return;
+        schedule.save(inst, body);
+        return json(res, 200, { ok: true });
+      }
+      if (m[3] && (m[4] === 'run' || !m[4]) && (method === 'POST' || method === 'DELETE')) {
+        const task = stored(m[3]);
+        if (!task) throw new Error('task not found');
+        if (denied(task.action.type)) return;
+        if (method === 'DELETE') { schedule.remove(inst, m[3]); return json(res, 200, { ok: true }); }
+        if (m[4] === 'run') return json(res, 200, { ok: true, result: schedule.run(inst, OWNER, m[3]) });
+      }
     } catch (err) { return bad(err); }
   }
 
@@ -558,7 +568,8 @@ async function handleApi(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://localhost');
+  let url;
+  try { url = new URL(req.url, 'http://localhost'); } catch (_) { res.writeHead(400); res.end('bad request'); return; }
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000');

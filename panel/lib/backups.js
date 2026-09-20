@@ -28,6 +28,10 @@ function forInstance(inst, owner) {
   return entry;
 }
 
-const forget = (id) => cache.delete(id);
+function forget(id) {
+  const entry = cache.get(id);
+  if (entry) entry.api.dispose();
+  cache.delete(id);
+}
 
 module.exports = { forInstance, forget, DEFAULTS };
