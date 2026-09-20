@@ -496,7 +496,8 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': CORE_TYPES[path.extname(file).slice(1)], 'Cache-Control': 'no-cache' });
       return fs.createReadStream(file).pipe(res);
     }
-    const entry = STATIC[url.pathname];
+    let entry = STATIC[url.pathname];
+    if (url.pathname === '/' && !sessions.get(cookieToken(req))) entry = ['login.html', 'text/html; charset=utf-8'];
     if (req.method === 'GET' && entry) {
       res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
       return res.end(fs.readFileSync(path.join(__dirname, entry[0])));
