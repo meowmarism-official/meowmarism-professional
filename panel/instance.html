@@ -178,11 +178,6 @@ const CONSOLE = MeowConsole.mount({
   fmtClock: (ts, sec) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(sec ? { second: '2-digit' } : {}) }),
   t: tr, esc,
 });
-async function visitExternal(url, what) {
-  if (await confirmBox('Leave this panel?', `Do you want to visit ${what}? This opens in a new tab.`, 'Visit')) window.open(url, '_blank', 'noopener');
-}
-$('navGhLink').onclick = (e) => { e.preventDefault(); visitExternal('https://github.com/meowmarism-official/meowmarism-professional', 'our GitHub'); };
-$('sideLicenseLink').onclick = (e) => { e.preventDefault(); visitExternal('https://github.com/meowmarism-official/meowmarism-professional/blob/master/LICENSE', 'the license on GitHub'); };
 
 function showPage(page, push) {
   if (!PAGE_META[page] || !current || !current.caps.includes(PAGE_CAP[page])) page = 'overview';
