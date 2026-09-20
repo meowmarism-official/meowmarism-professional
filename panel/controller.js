@@ -14,15 +14,18 @@ const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
 const { createUsersApi } = require('./core/modules/users-api');
+const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
-const { DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
+const { HOME, DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
 const HOST = process.env.MEOWMARISM_HOST || '0.0.0.0';
 const SECURE_COOKIE = process.env.MEOWMARISM_SECURE_COOKIES === '1';
+const panelSettings = createPanelSettings({ file: path.join(HOME, '.meowmarism-pro-settings.json') });
+const { clientIp, isHttps } = panelSettings;
 const COOKIE = 'meow_pro_session';
 const TYPES = ['VANILLA', 'PAPER', 'PURPUR', 'FABRIC', 'NEOFORGE', 'FORGE'];
 const OWNER = { uid: os.userInfo().uid, gid: os.userInfo().gid };
@@ -153,14 +156,14 @@ async function handleApi(req, res, url) {
   if (p === '/api/login' && method === 'POST') {
     const data = await readBody(req);
     const username = String(data.username || '').slice(0, 64);
-    const key = `${req.socket.remoteAddress}|${username}`;
+    const key = `${clientIp(req)}|${username}`;
     const wait = throttled(key);
     if (wait) return json(res, 429, { error: `too many attempts, wait ${wait}s` });
     const user = users.verify(username, String(data.password || ''));
     if (!user) { failed(key); return json(res, 401, { error: 'wrong username or password' }); }
     attempts.delete(key);
     const token = sessions.create(user);
-    res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${SECURE_COOKIE ? '; Secure' : ''}`);
+    res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${SECURE_COOKIE || isHttps(req) ? '; Secure' : ''}`);
     return json(res, 200, { ok: true });
   }
 
@@ -175,6 +178,17 @@ async function handleApi(req, res, url) {
   const me = users.store.findUser(session.username);
   if (!me) return json(res, 401, { error: 'not authenticated' });
   if (usersApi.handle(req, res, url)) return;
+  if (p === '/api/panel-settings') {
+    if (!hasPanelCap(me, 'users')) return json(res, 403, { error: 'not allowed to change settings' });
+    if (method === 'GET') return json(res, 200, panelSettings.load());
+    if (method === 'POST') {
+      const data = await readBody(req);
+      const next = panelSettings.load();
+      if (typeof data.trustProxy === 'boolean') next.trustProxy = data.trustProxy;
+      panelSettings.save(next);
+      return json(res, 200, panelSettings.load());
+    }
+  }
   if (p === '/api/system' && method === 'GET') {
     return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
   }
@@ -442,6 +456,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   try {
     if (url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET') {

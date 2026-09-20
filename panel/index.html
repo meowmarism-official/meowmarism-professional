@@ -121,7 +121,11 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
       </table><div id="empty" class="empty hidden">No instances yet.</div></div>
     </section>
 
-    <section id="usersView" class="hidden"><div class="top"><button class="btn" id="usersBack">&larr; Instances</button></div><div id="usersRoot"></div></section>
+    <section id="usersView" class="hidden"><div class="top"><button class="btn" id="usersBack">&larr; Instances</button></div><div id="usersRoot"></div>
+      <div class="card" style="padding:18px;margin-top:18px"><div class="card-title">Panel</div>
+        <label style="display:flex;gap:10px;align-items:center;margin-top:10px"><input type="checkbox" id="trustProxy"><span>This panel runs behind an HTTPS reverse proxy</span></label>
+        <p class="hint">Turn this on only when a proxy such as Caddy or nginx in front of the panel sets X-Forwarded-For and X-Forwarded-Proto. It enables Secure cookies and correct client IPs for login protection.</p>
+        <p class="hint" id="proxyStatus"></p></div></section>
 
     <section id="detailView" class="hidden">
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
@@ -272,10 +276,15 @@ function showList() {
 }
 $('back').onclick = showList;
 $('usersBack').onclick = showList;
+$('trustProxy').onchange = async (e) => {
+  try { await api('/api/panel-settings', { method: 'POST', body: { trustProxy: e.target.checked } }); $('proxyStatus').textContent = tr('Saved.'); }
+  catch (err) { $('proxyStatus').textContent = err.message; }
+};
 $('usersNav').onclick = () => {
   clearInterval(listTimer); clearInterval(logTimer); current = null;
   $('listView').classList.add('hidden'); $('detailView').classList.add('hidden'); $('usersView').classList.remove('hidden');
   USERS.load();
+  api('/api/panel-settings').then((c) => { $('trustProxy').checked = !!c.trustProxy; }).catch(() => {});
 };
 
 $('newBtn').onclick = async () => {
