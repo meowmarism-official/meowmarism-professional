@@ -17,7 +17,6 @@
 <link rel="stylesheet" href="/core/ui/charts-ui.css">
 <style>
 .hidden{display:none!important}
-#console{white-space:pre-wrap;word-break:break-word}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
 .form-row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
 .form-row label{display:block;font-size:12px;color:var(--muted)}
@@ -56,12 +55,7 @@
       <section class="page" id="page-performance"><div id="perfRoot"></div></section>
       <section class="page" id="page-players"><div id="playersRoot"></div></section>
 
-      <section class="page" id="page-console">
-        <div class="console-shell">
-          <div id="console"></div>
-          <div class="command"><div class="cmd-area"><div class="cmd-row"><div class="cmd-input-wrap"><span class="prompt">&gt;</span><input class="cmd-input" id="cmdInput" placeholder="Send a command, for example: say hello" autocomplete="off" autocapitalize="off" spellcheck="false"></div><button class="btn primary" id="btnSend">Send</button></div></div></div>
-        </div>
-      </section>
+      <section class="page" id="page-console"><div id="consoleRoot"></div></section>
 
       <section class="page" id="page-settings"><div id="settingsRoot"></div></section>
 
@@ -116,6 +110,7 @@
 <script src="/core/ui/access-ui.js"></script>
 <script src="/core/ui/backups-ui.js"></script>
 <script src="/core/ui/mods-ui.js"></script>
+<script src="/core/ui/console-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
 <script>
@@ -176,6 +171,13 @@ MeowInstanceShell.mount({
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
 });
 $('backToController').href = '/';
+const CONSOLE = MeowConsole.mount({
+  el: $('consoleRoot'),
+  send: async (cmd) => { const r = await api(`/api/instances/${ID}/command`, { method: 'POST', body: { command: cmd } }); if (r.output) toast(r.output.slice(0, 200)); poll(); },
+  players: () => onlineNames,
+  fmtClock: (ts, sec) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(sec ? { second: '2-digit' } : {}) }),
+  t: tr, esc,
+});
 async function visitExternal(url, what) {
   if (await confirmBox('Leave this panel?', `Do you want to visit ${what}? This opens in a new tab.`, 'Visit')) window.open(url, '_blank', 'noopener');
 }
@@ -188,7 +190,7 @@ function showPage(page, push) {
   document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + page));
   $('pageTitle').textContent = tr(PAGE_META[page][0]); $('pageSub').textContent = tr(PAGE_META[page][1]);
   if (push) history.pushState({}, '', `${BASE}/${page}`);
-  if (page === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
+  if (page === 'console') CONSOLE.scrollToEnd();
   if (page === 'backups') loadBackups();
   if (page === 'mods') MODS.show('installed');
   if (page === 'files') FILES.load('.');
@@ -217,17 +219,33 @@ function paint(i) {
   $('kvCpu').textContent = i.cpus; $('kvMem').textContent = (i.memoryMB + 768) + ' MB';
   if (!document.activeElement || !['lMem', 'lCpu', 'lPort'].includes(document.activeElement.id)) { $('lMem').value = i.memoryMB; $('lCpu').value = i.cpus; $('lPort').value = i.port; }
   $('btnStart').disabled = i.state === 'running'; $('btnStop').disabled = $('btnRestart').disabled = i.state !== 'running';
+  CONSOLE.setEnabled(i.state === 'running');
   const power = i.caps.includes('power');
   for (const id of ['btnStart', 'btnRestart', 'btnStop', 'bKill']) $(id).classList.toggle('hidden', !power);
   document.querySelectorAll('.nav a[data-page]').forEach((a) => a.classList.toggle('hidden', !i.caps.includes(PAGE_CAP[a.dataset.page])));
 }
-let lastPaint = '';
+let prevLines = [];
+let onlineNames = [];
+// The log endpoint returns the last lines; only the lines after the ones already shown are added.
+function feedLogs(text) {
+  const lines = String(text || '').split(String.fromCharCode(10)).filter((x) => x.trim());
+  if (!lines.length) return;
+  let from = 0;
+  if (prevLines.length) {
+    const last = prevLines[prevLines.length - 1], before = prevLines[prevLines.length - 2];
+    let at = -1;
+    for (let i = lines.length - 1; i >= 0; i--) if (lines[i] === last && (before === undefined || lines[i - 1] === before || i === 0)) { at = i; break; }
+    if (at >= 0) from = at + 1; else CONSOLE.reset();
+  }
+  for (const l of lines.slice(from)) CONSOLE.appendLine(l, { animate: prevLines.length > 0 });
+  prevLines = lines;
+}
 async function poll() {
   try {
     const [list, l] = await Promise.all([api('/api/instances?stats=1'), current && current.caps.includes('console') ? api(`/api/instances/${ID}/logs?tail=400`) : Promise.resolve(null)]);
     const i = list.find((x) => x.id === ID); if (!i) { location.href = '/'; return; }
     current = i; paint(i);
-    if (l && l.logs !== lastPaint) { const c = $('console'); const atEnd = c.scrollTop + c.clientHeight >= c.scrollHeight - 30; c.textContent = l.logs; if (atEnd) c.scrollTop = c.scrollHeight; lastPaint = l.logs; }
+    if (l) feedLogs(l.logs);
   } catch (_) {}
 }
 
@@ -238,12 +256,6 @@ async function power(action, label) {
 $('btnStart').onclick = () => power('start', 'Start'); $('btnStop').onclick = () => power('stop', 'Stop');
 $('btnRestart').onclick = () => power('restart', 'Restart'); $('bKill').onclick = () => power('kill', 'Kill');
 
-async function sendCommand() {
-  const cmd = $('cmdInput').value.trim(); if (!cmd) return; $('cmdInput').value = '';
-  try { const r = await api(`/api/instances/${ID}/command`, { method: 'POST', body: { command: cmd } }); if (r.output) toast(r.output.slice(0, 200)); poll(); } catch (err) { toast(err.message, 'error'); }
-}
-$('btnSend').onclick = sendCommand;
-$('cmdInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCommand(); });
 $('limitForm').onsubmit = async (e) => {
   e.preventDefault();
   if (!(await confirmBox('Save limits?', 'The container is recreated. A running server is restarted.', 'Save'))) return;
@@ -396,7 +408,7 @@ const OVERVIEW = MeowCharts.mount({
   isVisible: () => pageActive('overview'),
 });
 $('ovPlayers').textContent = '-';
-async function pollPlayers() { try { const s = await api(`/api/instances/${ID}/players`); $('ovPlayers').textContent = `${s.online} / ${s.max ?? '-'}`; } catch (_) {} }
+async function pollPlayers() { try { const s = await api(`/api/instances/${ID}/players`); onlineNames = s.list.map((x) => x.name); $('ovPlayers').textContent = `${s.online} / ${s.max ?? '-'}`; } catch (_) {} }
 
 async function start() {
   try { system = await api('/api/system'); } catch (_) { return; }
