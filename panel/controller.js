@@ -18,6 +18,7 @@ const { createUpdater } = require('./core/modules/updater');
 const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const systemInfo = require('./core/modules/system-info');
+const events = require('./lib/events');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
@@ -87,7 +88,10 @@ const findInstance = (id) => instances.list().find((i) => i.id === id);
 const toolCache = new Map();
 const playersFile = (inst) => path.join(DATA_DIR, 'players', `${inst.name}.json`);
 function loadPlayers(inst) {
-  const tracker = createPlayerTracker();
+  const tracker = createPlayerTracker({
+    onJoin: (name) => events.add(inst.name, 'events', { type: 'join', title: `${name} joined`, severity: 'good' }),
+    onLeave: (name, ms) => events.add(inst.name, 'events', { type: 'leave', title: `${name} left`, detail: `${Math.max(1, Math.round((ms || 0) / 60000))} min played` }),
+  });
   try { tracker.restore(JSON.parse(fs.readFileSync(playersFile(inst), 'utf8'))); } catch (_) {}
   return tracker;
 }
@@ -142,11 +146,16 @@ function validateSpec(data, current) {
   return { spec };
 }
 
+const AUDIT_TITLES = {
+  start: 'Started the server', stop: 'Stopped the server', restart: 'Restarted the server', kill: 'Killed the server', command: 'Ran a console command',
+  settings: 'Changed server settings', limits: 'Changed resource limits', upgrade: 'Changed the Minecraft version', backups: 'Changed backups',
+  files: 'Changed files', mods: 'Changed mods', modrinth: 'Changed mods', access: 'Changed access lists', schedule: 'Changed the scheduler', players: 'Managed a player',
+};
 const ACTION_CAP = {
   logs: 'console', command: 'console', players: 'console', access: 'console',
   start: 'power', stop: 'power', restart: 'power', kill: 'power',
   files: 'files', mods: 'mods', modrinth: 'mods', backups: 'backups',
-  settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
+  events: 'settings', settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
 };
 const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)) });
 
@@ -304,6 +313,14 @@ async function handleApi(req, res, url) {
   const need = action ? (ACTION_CAP[action] || 'remove') : (method === 'DELETE' ? 'remove' : 'view');
   if (!caps.includes('view') || !caps.includes(need)) return json(res, 403, { error: 'not allowed' });
   const rt = runtimeFor(inst, OWNER);
+  if (method !== 'GET') {
+    res.on('finish', () => {
+      if (res.statusCode >= 300 || !findInstance(inst.id)) return;
+      const title = AUDIT_TITLES[action] || 'Changed the instance';
+      events.add(inst.name, 'audit', { type: action || 'instance', title, detail: [m[3], m[4]].filter(Boolean).join(' / '), user: me.username });
+    });
+  }
+  if (action === 'events' && method === 'GET') return json(res, 200, events.list(inst.name));
 
   if (!action && method === 'DELETE') {
     const data = await readBody(req).catch(() => ({}));
@@ -315,6 +332,7 @@ async function handleApi(req, res, url) {
     if (data.deleteData === true && inst.dir.startsWith(INSTANCES_DIR + path.sep)) {
       fs.rmSync(inst.dir, { recursive: true, force: true });
       fs.rmSync(path.join(DATA_DIR, 'metrics', `${inst.name}.json`), { force: true });
+      events.forget(inst.name);
       fs.rmSync(playersFile(inst), { force: true });
       removeRecord(inst);
     }
@@ -609,11 +627,29 @@ async function pollPlayers() {
 }
 setInterval(pollPlayers, 10000).unref();
 
+const lastState = new Map();
+function trackLifecycle() {
+  for (const inst of instances.list()) {
+    const st = stateCache.states[docker.containerName(inst)];
+    const now = st ? st.state : 'missing';
+    const before = lastState.get(inst.id);
+    lastState.set(inst.id, now);
+    if (!before || before === now) continue;
+    if (now === 'running') events.add(inst.name, 'events', { type: 'start', title: 'Server started', severity: 'good' });
+    else if (before === 'running' && (now === 'exited' || now === 'dead')) {
+      const planned = events.recent(inst.name, 'audit', ['stop', 'restart', 'kill', 'upgrade', 'limits'], 90000);
+      events.add(inst.name, 'events', planned ? { type: 'stop', title: 'Server stopped' } : { type: 'crash', title: 'Server stopped unexpectedly', severity: 'error' });
+    }
+  }
+}
+
 function sampleMetrics() {
+  trackLifecycle();
   for (const inst of instances.list()) {
     const st = stateCache.states[docker.containerName(inst)];
     if (!st || st.state !== 'running') continue;
-    const stat = stateCache.stats[docker.containerName(inst)] || {};
+    const stat = stateCache.stats[docker.containerName(inst)];
+    if (!stat || !Number.isFinite(stat.cpu) || !Number.isFinite(stat.memMB)) continue;
     const tl = toolsFor(inst);
     tl.metrics.add({ cpu: stat.cpu, memMB: stat.memMB, players: tl.players.players.size });
   }

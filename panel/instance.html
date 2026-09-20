@@ -100,6 +100,7 @@
           </div></article>
         </div>
       </section>
+      <section class="page" id="page-events"><div id="eventsRoot"></div></section>
       <section class="page" id="page-automation">
         <div class="grid">
           <article class="card span-6"><div class="card-head"><div class="card-title">Backup settings</div></div><div class="card-body">
@@ -130,6 +131,7 @@
 <script src="/core/ui/console-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
+<script src="/core/ui/events-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -140,9 +142,9 @@ let current = null, system = null, logTimer = null;
 const PAGE_META = {
   overview: ['Overview', 'live server status'], performance: ['Performance', 'CPU, memory and players over time'], players: ['Players', 'click a player to manage them'],
   console: ['Console', 'live console and commands'], settings: ['Settings', 'server.properties'], mods: ['Mods', 'installed and Modrinth'], files: ['Files', 'browse files on the server'],
-  access: ['Access', 'whitelist, operators and bans'], backups: ['Backups', 'world backups'], schedule: ['Scheduler', 'timed tasks'], manage: ['Manage', 'version, limits and removal'], automation: ['Automation', 'Automatic backups'],
+  access: ['Access', 'whitelist, operators and bans'], backups: ['Backups', 'world backups'], schedule: ['Scheduler', 'timed tasks'], manage: ['Manage', 'version, limits and removal'], automation: ['Automation', 'Automatic backups'], events: ['Events & Audit', 'joins, leaves, lifecycle and panel actions'],
 };
-const PAGE_CAP = { overview: 'view', performance: 'view', players: 'console', console: 'console', settings: 'settings', mods: 'mods', files: 'files', access: 'console', backups: 'backups', schedule: 'settings', manage: 'settings', automation: 'settings' };
+const PAGE_CAP = { overview: 'view', performance: 'view', players: 'console', console: 'console', settings: 'settings', mods: 'mods', files: 'files', access: 'console', backups: 'backups', schedule: 'settings', manage: 'settings', automation: 'settings', events: 'settings' };
 const pageActive = (p) => $('page-' + p).classList.contains('active');
 
 function toast(msg, kind) {
@@ -184,7 +186,7 @@ function stateOf(i) {
 
 MeowInstanceShell.mount({
   edition: 'PRO', brandSub: 'Official version', base: BASE, backLabel: 'All instances', sync: false, history: false,
-  pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage', 'automation'],
+  pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage', 'automation', 'events'],
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
 });
 $('backToController').href = '/';
@@ -209,6 +211,7 @@ function showPage(page, push) {
   if (page === 'schedule') SCHEDULE.load();
   if (page === 'manage') loadVersion();
   if (page === 'automation') loadAutomation();
+  if (page === 'events') EVENTS.load();
   if (page === 'performance') PERF.load();
   if (page === 'players') PLAYERS.load();
   if (page === 'access') ACCESS.load();
@@ -413,6 +416,15 @@ const MODS = MeowMods.mount({
   toggle: (name, enable) => api(`/api/instances/${ID}/mods/toggle`, { method: 'POST', body: { name, enable } }).catch((err) => toast(err.message, 'error')),
   modrinthBase: () => `/api/instances/${ID}/modrinth`,
   t: tr, esc, toast,
+});
+
+// --- events ---
+const EVENTS = MeowEvents.mount({
+  el: $('eventsRoot'),
+  load: () => api(`/api/instances/${ID}/events`),
+  fmtClock: (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+  t: tr, esc,
+  isVisible: () => pageActive('events'), refreshMs: 8000,
 });
 
 // --- automation ---
