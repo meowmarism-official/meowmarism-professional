@@ -13,6 +13,7 @@ const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
+const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
 const { INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
 
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
@@ -80,6 +81,7 @@ function toolsFor(inst) {
     const disabledDir = path.join(inst.dir, 'disabled_mods');
     t = {
       files: createFiles({ root: inst.dir }),
+      players: createPlayerTracker(),
       access: createAccess({ dir: inst.dir, isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       props: createProperties({ file: path.join(inst.dir, 'server.properties'), isRunning: () => runtimeFor(inst, OWNER).isRunning(), command: (text) => runtimeFor(inst, OWNER).command(text) }),
       mods: createMods({ modsDir, disabledDir }),
@@ -218,6 +220,24 @@ async function handleApi(req, res, url) {
     else { await rt.stopAsync(); await rt.startAsync(); }
     if (action !== 'stop' && action !== 'kill') toolsFor(inst).props.clearPending();
     return json(res, 200, { ok: true });
+  }
+
+  if (action === 'players') {
+    const pl = toolsFor(inst).players;
+    if (!m[3] && method === 'GET') return json(res, 200, pl.stats(Number(toolsFor(inst).props.read()['max-players']) || 20));
+    if (m[3] === 'detail' && method === 'GET') {
+      try { return json(res, 200, pl.detail(url.searchParams.get('name'))); } catch (err) { return json(res, 400, { error: err.message }); }
+    }
+    if (m[3] === 'action' && method === 'POST') {
+      const data = await readBody(req);
+      try {
+        const name = playerName(data.player);
+        if (!pl.players.has(name)) return json(res, 409, { ok: false, error: 'player is no longer online' });
+        if (!rt.isRunning()) return json(res, 409, { ok: false, error: 'server is not running' });
+        await rt.commandAsync(buildPlayerCommand(String(data.action || ''), name, data.value, data.reason));
+        return json(res, 200, { ok: true });
+      } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+    }
   }
 
   if (action === 'access') {
@@ -392,5 +412,19 @@ const server = http.createServer(async (req, res) => {
 startPolling();
 setInterval(() => schedule.tick(OWNER), 20000).unref();
 for (const inst of instances.list()) backups.forInstance(inst, OWNER);
+
+// Online players come from the game's own `list` output.
+async function pollPlayers() {
+  for (const inst of instances.list()) {
+    const tracker = toolsFor(inst).players;
+    const rt = runtimeFor(inst, OWNER);
+    if (!rt.isReady()) { tracker.reset(); continue; }
+    try {
+      const out = await rt.commandAsync('list');
+      for (const line of String(out).replace(/§./g, '').split('\n')) tracker.parseLine(line);
+    } catch (_) {}
+  }
+}
+setInterval(pollPlayers, 10000).unref();
 
 server.listen(PORT, HOST, () => console.log(`meowmarism PROFESSIONAL listening on ${HOST}:${PORT}`));

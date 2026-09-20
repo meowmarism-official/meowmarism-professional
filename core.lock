@@ -1,7 +1,7 @@
 {
   "core": "meowmarism-core",
   "version": "0.0.0",
-  "commit": "4a53425eb8a213a471f801d1c4ca597ee832b2ec",
+  "commit": "6a4a0617ce3a334dde45eda49661b5f4fea44d61",
   "files": [
     "LICENSE",
     "CONTRIBUTOR-AGREEMENT.md",
@@ -21,6 +21,7 @@
     "panel/core/modules/files.js",
     "panel/core/modules/modrinth.js",
     "panel/core/modules/mods.js",
+    "panel/core/modules/players.js",
     "panel/core/modules/properties.js",
     "panel/core/modules/ratelimit.js",
     "panel/core/modules/runtime-contract.js",
@@ -34,6 +35,8 @@
     "panel/core/ui/loaders.js",
     "panel/core/ui/modrinth-ui.css",
     "panel/core/ui/modrinth-ui.js",
+    "panel/core/ui/players-ui.css",
+    "panel/core/ui/players-ui.js",
     "panel/core/ui/schedule-ui.js",
     "panel/core/ui/settings-ui.css",
     "panel/core/ui/settings-ui.js"
