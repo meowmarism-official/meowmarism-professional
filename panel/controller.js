@@ -17,6 +17,7 @@ const { createUsersApi } = require('./core/modules/users-api');
 const { createUpdater } = require('./core/modules/updater');
 const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
+const systemInfo = require('./core/modules/system-info');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
@@ -256,6 +257,11 @@ async function handleApi(req, res, url) {
       panelSettings.save(next);
       return json(res, 200, panelSettings.load());
     }
+  }
+  if (p === '/api/system-info' && method === 'GET') {
+    if (!hasPanelCap(me, 'users')) return json(res, 403, { error: 'not allowed' });
+    const d = await docker.info();
+    return json(res, 200, systemInfo.collect({ dir: DATA_DIR, extra: { docker: d.ok ? `${d.version || 'running'}` : `not reachable` } }));
   }
   if (p === '/api/system' && method === 'GET') {
     return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });

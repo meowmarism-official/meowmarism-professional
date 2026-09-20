@@ -78,6 +78,7 @@ label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
 
 <script src="/core/ui/loaders.js"></script>
 <script src="/core/ui/instances-ui.js"></script>
+<script src="/core/ui/system-ui.js"></script>
 <script src="/core/ui/shell.js"></script>
 <script src="/core/ui/wizard-ui.js"></script>
 <script src="/core/ui/users-ui.js"></script>
@@ -123,7 +124,7 @@ const SHELL = MeowShell.mount({
   repo: 'meowmarism-official/meowmarism-professional',
   serverLabel: 'Instances',
   updateHint: 'Updating installs the newest release and restarts the panel. Your servers keep running in their containers.',
-  urls: { version: '/api/version', update: '/api/update', updateStatus: '/api/update-status', settings: '/api/panel-settings' },
+  urls: { version: '/api/version', update: '/api/update', updateStatus: '/api/update-status', settings: '/api/panel-settings', system: '/api/system-info' },
   t: tr, esc,
   confirm: (title, message, label) => confirmBox(title, message, label),
   pagesEl: document.querySelector('.wrap'),
