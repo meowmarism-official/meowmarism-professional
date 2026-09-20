@@ -39,7 +39,7 @@
           <div class="status-cell"><div class="status-kicker">RAM</div><div class="big-value" id="ovRam">-</div><div class="small-value" id="ovRamLimit"></div></div>
         </div>
         <div class="grid">
-          <article class="card span-8"><div class="card-head"><div class="card-title">Performance history</div></div><div class="card-body"><div id="ovChart"></div></div></article>
+          <div class="span-8" id="ovChart"></div>
           <article class="card span-4"><div class="card-head"><div class="card-title">Container</div><div class="card-meta">Docker</div></div>
             <div class="card-body">
               <div class="kv-row"><span>State</span><b id="kvState">-</b></div>
@@ -75,25 +75,42 @@
       <section class="page" id="page-schedule"><div id="scheduleRoot"></div></section>
 
       <section class="page" id="page-manage">
-        <div class="grid2">
-          <article class="card"><div class="card-head"><div class="card-title">Minecraft version</div></div><div class="card-body">
-            <p class="hint" id="verCurrent" style="margin:0 0 12px"></p>
-            <p class="hint">A world backup is taken first, the container is recreated on the new version, and you can roll back afterwards.</p>
-            <div class="form-row" style="margin:12px 0"><select id="verSelect" style="max-width:220px"></select>
-              <button class="btn primary" id="verUpgrade">Upgrade</button><button class="btn hidden" id="verRollback">Roll back</button></div>
-            <p class="hint" id="verLast"></p>
-            <pre id="verLog" class="hidden"></pre></div></article>
-          <article class="card"><div class="card-head"><div class="card-title">Limits</div></div><div class="card-body">
+        <div class="grid">
+          <article class="card span-6"><div class="card-head"><div class="card-title">Resources</div></div><div class="card-body">
             <form id="limitForm">
-              <div class="form-row"><label>Memory (MB)<input class="compact-input" id="lMem" type="number" min="512" step="256"></label>
-                <label>CPUs<input class="compact-input" id="lCpu" type="number" min="0.25" step="0.25"></label>
-                <label>Port<input class="compact-input" id="lPort" type="number" min="1024" max="65535"></label></div>
-              <p class="hint">Saving recreates the container. A running server is stopped and started again. World and settings are kept.</p>
-              <button class="btn primary" style="margin-top:10px">Save</button>
-            </form></div></article>
-          <article class="card"><div class="card-head"><div class="card-title">Danger zone</div></div><div class="card-body">
-            <p class="hint" style="margin-top:0">Removes the container. You can keep or delete the world and settings.</p>
-            <div class="row" style="margin-top:12px"><button class="btn danger" id="bKill">Kill</button><button class="btn danger" id="delBtn">Delete instance...</button></div></div></article>
+              <div class="hint" style="margin-bottom:8px">Saving recreates the container. A running server is stopped and started again. World and settings are kept.</div>
+              <div class="cmd-row" style="margin-bottom:6px">
+                <label class="hint">Memory<input class="compact-input" type="number" min="512" step="256" id="lMem" style="width:90px;margin:0 6px">MB</label>
+                <label class="hint">CPUs<input class="compact-input" type="number" min="0.25" step="0.25" id="lCpu" style="width:70px;margin:0 6px"></label>
+                <label class="hint">Port<input class="compact-input" type="number" min="1024" max="65535" id="lPort" style="width:90px;margin:0 6px"></label>
+              </div>
+              <div class="settings-actions" style="margin-top:8px"><button class="btn primary">Save</button></div>
+            </form>
+          </div></article>
+          <article class="card span-6"><div class="card-head"><div class="card-title">Server software</div></div><div class="card-body">
+            <div class="hint" style="margin-bottom:8px">Upgrade Minecraft. A world backup is taken first, the container is recreated on the new version, and you can roll back afterwards.</div>
+            <div class="kv"><div class="kv-row"><div class="kv-key">Installed</div><div class="kv-val" id="verCurrent">-</div></div></div>
+            <div class="settings-actions" style="margin:10px 0"><select class="compact-input" id="verSelect" style="max-width:220px"></select> <button class="btn primary" id="verUpgrade">Upgrade</button> <button class="btn hidden" id="verRollback">Roll back</button></div>
+            <div class="hint" id="verLast" style="margin:8px 0"></div>
+            <pre id="verLog" class="hidden"></pre>
+          </div></article>
+          <article class="card span-12" style="border-color:#5a2f2f"><div class="card-head"><div class="card-title" style="color:#f1a0a0">Danger zone</div></div><div class="card-body">
+            <div class="hint" style="margin-bottom:10px">Removes the container. You can keep or delete the world and settings. This cannot be undone.</div>
+            <div class="settings-actions"><button class="btn danger" id="bKill">Kill</button><button class="btn danger" id="delBtn">Delete instance...</button></div>
+          </div></article>
+        </div>
+      </section>
+      <section class="page" id="page-automation">
+        <div class="grid">
+          <article class="card span-6"><div class="card-head"><div class="card-title">Backup settings</div></div><div class="card-body">
+            <div class="hint" style="margin-bottom:8px">How often backups run automatically, how many are kept, and how much disk space must stay free after a backup.</div>
+            <div class="cmd-row" style="margin-bottom:6px">
+              <label class="hint">Every<input class="compact-input" type="number" min="0.25" max="168" step="0.25" id="auBackupHours" style="width:70px;margin:0 6px">hours</label>
+              <label class="hint">Max<input class="compact-input" type="number" min="1" max="100" id="auBackupMax" style="width:60px;margin:0 6px">backups</label>
+              <label class="hint">Keep<input class="compact-input" type="number" min="0" max="1000" id="auBackupFree" style="width:60px;margin:0 6px">GB free</label>
+            </div>
+            <div class="settings-actions" style="margin-top:8px"><button class="btn primary" id="auBackupSave">Save</button></div>
+          </div></article>
         </div>
       </section>
     </main>
@@ -123,9 +140,9 @@ let current = null, system = null, logTimer = null;
 const PAGE_META = {
   overview: ['Overview', 'live server status'], performance: ['Performance', 'CPU, memory and players over time'], players: ['Players', 'click a player to manage them'],
   console: ['Console', 'live console and commands'], settings: ['Settings', 'server.properties'], mods: ['Mods', 'installed and Modrinth'], files: ['Files', 'browse files on the server'],
-  access: ['Access', 'whitelist, operators and bans'], backups: ['Backups', 'world backups'], schedule: ['Scheduler', 'timed tasks'], manage: ['Manage', 'version, limits and removal'],
+  access: ['Access', 'whitelist, operators and bans'], backups: ['Backups', 'world backups'], schedule: ['Scheduler', 'timed tasks'], manage: ['Manage', 'version, limits and removal'], automation: ['Automation', 'Automatic backups'],
 };
-const PAGE_CAP = { overview: 'view', performance: 'view', players: 'console', console: 'console', settings: 'settings', mods: 'mods', files: 'files', access: 'console', backups: 'backups', schedule: 'settings', manage: 'settings' };
+const PAGE_CAP = { overview: 'view', performance: 'view', players: 'console', console: 'console', settings: 'settings', mods: 'mods', files: 'files', access: 'console', backups: 'backups', schedule: 'settings', manage: 'settings', automation: 'settings' };
 const pageActive = (p) => $('page-' + p).classList.contains('active');
 
 function toast(msg, kind) {
@@ -167,7 +184,7 @@ function stateOf(i) {
 
 MeowInstanceShell.mount({
   edition: 'PRO', brandSub: 'Official version', base: BASE, backLabel: 'All instances', sync: false, history: false,
-  pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage'],
+  pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage', 'automation'],
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
 });
 $('backToController').href = '/';
@@ -191,6 +208,7 @@ function showPage(page, push) {
   if (page === 'files') FILES.load('.');
   if (page === 'schedule') SCHEDULE.load();
   if (page === 'manage') loadVersion();
+  if (page === 'automation') loadAutomation();
   if (page === 'performance') PERF.load();
   if (page === 'players') PLAYERS.load();
   if (page === 'access') ACCESS.load();
@@ -331,13 +349,19 @@ $('verRollback').onclick = async () => {
 
 // --- performance ---
 
+const metricPoints = async (range) => {
+  const d = await api(`/api/instances/${ID}/metrics?range=${range}`);
+  const limit = current ? current.memoryMB + 768 : 0;
+  return { points: (d.points || []).map((p) => ({ ...p, ram: limit ? Math.min(100, (p.memMB / limit) * 100) : 0 })) };
+};
+const pctFmt = (v) => `${Math.round(v)}%`;
+const CPU_RAM = [{ key: 'cpu', label: 'CPU', color: '#5f9ee8', format: pctFmt }, { key: 'ram', label: 'RAM', color: '#9b83d7', format: pctFmt }];
 const PERF = MeowCharts.mount({
   el: $('perfRoot'),
-  load: (range) => api(`/api/instances/${current.id}/metrics?range=${range}`),
+  load: metricPoints,
   charts: [
-    { key: 'cpu', title: 'CPU', color: '#5f9ee8', format: (v) => `${v.toFixed(0)}%` },
-    { key: 'memMB', title: 'Memory', color: '#e87ab8', format: (v) => `${Math.round(v)} MB` },
-    { key: 'players', title: 'Players', color: '#6cc48a', format: (v) => String(Math.round(v)), minMax: 3 },
+    { title: 'CPU / RAM', series: CPU_RAM, max: 100 },
+    { title: 'Players', series: [{ key: 'players', label: 'Players', color: '#5f9ee8', format: (v) => String(Math.round(v)) }], minMax: 3 },
   ],
   t: tr, esc,
   isVisible: () => pageActive('performance'),
@@ -391,14 +415,25 @@ const MODS = MeowMods.mount({
   t: tr, esc, toast,
 });
 
+// --- automation ---
+async function loadAutomation() {
+  try {
+    const d = await api(`/api/instances/${ID}/backups`);
+    $('auBackupHours').value = d.settings.backupIntervalHours; $('auBackupMax').value = d.settings.maxBackups; $('auBackupFree').value = d.settings.backupMinFreeGB;
+  } catch (err) { toast(err.message, 'error'); }
+}
+$('auBackupSave').onclick = async () => {
+  try {
+    await api(`/api/instances/${ID}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('auBackupHours').value), maxBackups: Number($('auBackupMax').value), backupMinFreeGB: Number($('auBackupFree').value) } });
+    toast(tr('Saved.'));
+  } catch (err) { toast(err.message, 'error'); }
+};
+
 // --- overview ---
 const OVERVIEW = MeowCharts.mount({
   el: $('ovChart'),
-  load: (range) => api(`/api/instances/${ID}/metrics?range=${range}`),
-  charts: [
-    { key: 'cpu', title: 'CPU', color: '#5f9ee8', format: (v) => `${v.toFixed(0)}%` },
-    { key: 'memMB', title: 'Memory', color: '#e87ab8', format: (v) => `${Math.round(v)} MB` },
-  ],
+  load: metricPoints,
+  charts: [{ title: 'Performance history', series: CPU_RAM, max: 100 }],
   t: tr, esc,
   isVisible: () => pageActive('overview'),
 });
