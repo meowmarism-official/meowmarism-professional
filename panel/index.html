@@ -287,7 +287,7 @@ async function pollDetail() {
 }
 function setTab(t) {
   for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const n of ['console', 'files', 'schedule', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
+  for (const n of ['console', 'files', 'schedule', 'settings', 'mods', 'backups', 'limits', 'danger']) $('tab-' + n).classList.toggle('hidden', n !== t);
   if (t === 'console') { const c = $('console'); c.scrollTop = c.scrollHeight; }
   if (t === 'backups') loadBackups();
   if (t === 'mods') showModsTab('installed');
