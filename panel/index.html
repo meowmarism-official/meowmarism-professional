@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/core/ui/access-ui.css">
 <link rel="stylesheet" href="/core/ui/players-ui.css">
 <link rel="stylesheet" href="/core/ui/charts-ui.css">
+<link rel="stylesheet" href="/core/ui/users-ui.css">
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.5 var(--font-ui)}
@@ -107,7 +108,7 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
 </div>
 
 <div id="app" class="hidden">
-  <nav class="rail"><img src="/core/brand/logo.svg" alt=""><div class="grow"></div><button class="btn" data-lang-toggle title="Language"><svg viewBox="0 0 24 16" width="20" height="14"></svg><span data-lang-label data-no-i18n hidden></span></button><button class="btn" id="logout" title="Sign out">&#x2192;</button></nav>
+  <nav class="rail"><img src="/core/brand/logo.svg" alt=""><div class="grow"></div><button class="btn hidden" id="usersNav" title="Manage users"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></button><button class="btn" data-lang-toggle title="Language"><svg viewBox="0 0 24 16" width="20" height="14"></svg><span data-lang-label data-no-i18n hidden></span></button><button class="btn" id="logout" title="Sign out">&#x2192;</button></nav>
   <main>
     <div id="dockerBanner" class="banner hidden"></div>
 
@@ -119,6 +120,8 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
         <tbody id="rows"></tbody>
       </table><div id="empty" class="empty hidden">No instances yet.</div></div>
     </section>
+
+    <section id="usersView" class="hidden"><div class="top"><button class="btn" id="usersBack">&larr; Instances</button></div><div id="usersRoot"></div></section>
 
     <section id="detailView" class="hidden">
       <div class="top"><button class="btn" id="back">&larr; Instances</button><h1 id="dName"></h1><span id="dState" class="hint"></span><div class="sp"></div>
@@ -178,6 +181,7 @@ a.btn{color:var(--text);text-decoration:none;display:inline-block}
 <script src="/core/ui/access-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
+<script src="/core/ui/users-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -220,6 +224,8 @@ async function boot() {
   try { system = await api('/api/system'); } catch (_) { return showLogin(); }
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   if (!system.docker.ok) { $('dockerBanner').textContent = 'Docker is not reachable: ' + system.docker.error; $('dockerBanner').classList.remove('hidden'); }
+  $('usersNav').classList.toggle('hidden', !system.panel.users);
+  $('newBtn').classList.toggle('hidden', !system.panel.create);
   showList();
 }
 
@@ -252,10 +258,16 @@ async function loadList() {
 }
 function showList() {
   clearInterval(logTimer); current = null;
-  $('detailView').classList.add('hidden'); $('listView').classList.remove('hidden');
+  $('usersView').classList.add('hidden'); $('detailView').classList.add('hidden'); $('listView').classList.remove('hidden');
   loadList().catch(() => {}); clearInterval(listTimer); listTimer = setInterval(() => loadList().catch(() => {}), 5000);
 }
 $('back').onclick = showList;
+$('usersBack').onclick = showList;
+$('usersNav').onclick = () => {
+  clearInterval(listTimer); clearInterval(logTimer); current = null;
+  $('listView').classList.add('hidden'); $('detailView').classList.add('hidden'); $('usersView').classList.remove('hidden');
+  USERS.load();
+};
 
 $('newBtn').onclick = async () => {
   const box = document.createElement('div');
@@ -276,7 +288,13 @@ async function showDetail(id) {
   const list = await loadList().catch(() => []);
   current = list.find((i) => i.id === id); if (!current) return showList();
   $('listView').classList.add('hidden'); $('detailView').classList.remove('hidden');
-  MR.reset(); paintDetail(current); setTab('console'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
+  MR.reset(); paintDetail(current); applyCaps(current.caps); setTab(['console', 'performance'].find((t) => current.caps.includes(TAB_CAP[t])) || 'performance'); pollDetail(); clearInterval(logTimer); logTimer = setInterval(pollDetail, 2500);
+}
+const TAB_CAP = { console: 'console', files: 'files', schedule: 'settings', performance: 'view', players: 'console', access: 'console', settings: 'settings', mods: 'mods', backups: 'backups', limits: 'settings', danger: 'remove' };
+function applyCaps(caps) {
+  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('hidden', !caps.includes(TAB_CAP[b.dataset.tab]));
+  const power = caps.includes('power');
+  for (const id of ['bStart', 'bStop', 'bRestart', 'bKill']) $(id).classList.toggle('hidden', !power);
 }
 function paintDetail(i) {
   const [, label] = stateOf(i);
@@ -386,6 +404,16 @@ const SCHEDULE = MeowSchedule.mount({
   t: tr, esc, toast, fmtDate,
   confirm: (title, message, label) => confirmBox(title, message, label),
   isVisible: () => !$('tab-schedule').classList.contains('hidden'),
+});
+
+// --- users ---
+const USERS = MeowUsers.mount({
+  el: $('usersRoot'),
+  base: '/api/users',
+  instances: async () => (await api('/api/instances')).map((i) => i.name),
+  role: () => system.role,
+  t: tr, esc, toast,
+  confirm: (title, message, label) => confirmBox(title, message, label),
 });
 
 // --- performance ---

@@ -13,6 +13,8 @@ const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
 const { createAccess } = require('./core/modules/access');
+const { createUsersApi } = require('./core/modules/users-api');
+const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const { createMetrics } = require('./core/modules/metrics');
 const { createPlayerTracker, buildPlayerCommand, playerName } = require('./core/modules/players');
 const { DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_AGE_MS } = require('./lib/store');
@@ -93,8 +95,8 @@ function toolsFor(inst) {
   }
   return t;
 }
-const publicInstance = (i, st, stat) => ({
-  id: i.id, name: i.name, type: i.type, version: i.version, port: i.port, memoryMB: i.memoryMB, cpus: i.cpus,
+const publicInstance = (i, st, stat, caps) => ({
+  caps, id: i.id, name: i.name, type: i.type, version: i.version, port: i.port, memoryMB: i.memoryMB, cpus: i.cpus,
   state: st ? st.state : 'missing', health: st ? st.health : 'none',
   cpuUsage: stat ? stat.cpu : null, memUsage: stat ? stat.mem : null,
 });
@@ -118,6 +120,14 @@ function validateSpec(data, current) {
   if (!Number.isFinite(spec.cpus) || spec.cpus < 0.25 || spec.cpus > HOST_CPUS) return { error: `CPUs must be 0.25-${HOST_CPUS}` };
   return { spec };
 }
+
+const ACTION_CAP = {
+  logs: 'console', command: 'console', players: 'console', access: 'console',
+  start: 'power', stop: 'power', restart: 'power', kill: 'power',
+  files: 'files', mods: 'mods', modrinth: 'mods', backups: 'backups',
+  settings: 'settings', schedule: 'settings', limits: 'settings', metrics: 'view',
+};
+const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)) });
 
 async function handleApi(req, res, url) {
   const method = req.method;
@@ -145,14 +155,18 @@ async function handleApi(req, res, url) {
     res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
     return json(res, 200, { ok: true });
   }
+  const me = users.store.findUser(session.username);
+  if (!me) return json(res, 401, { error: 'not authenticated' });
+  if (usersApi.handle(req, res, url)) return;
   if (p === '/api/system' && method === 'GET') {
-    return json(res, 200, { user: session.username, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
+    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
   }
   if (p === '/api/instances' && method === 'GET') {
     const withStats = url.searchParams.get('stats') === '1';
-    return json(res, 200, instances.list().map((i) => publicInstance(i, stateCache.states[docker.containerName(i)], withStats ? stateCache.stats[docker.containerName(i)] : null)));
+    return json(res, 200, instances.list().filter((i) => effectiveCaps(me, i.name).includes('view')).map((i) => publicInstance(i, stateCache.states[docker.containerName(i)], withStats ? stateCache.stats[docker.containerName(i)] : null, effectiveCaps(me, i.name))));
   }
   if (p === '/api/instances' && method === 'POST') {
+    if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
     const { spec, error } = validateSpec(await readBody(req), null);
     if (error) return json(res, 400, { error });
     const list = instances.list();
@@ -178,6 +192,9 @@ async function handleApi(req, res, url) {
   const inst = findInstance(m[1]);
   if (!inst) return json(res, 404, { error: 'unknown instance' });
   const action = m[2];
+  const caps = effectiveCaps(me, inst.name);
+  const need = action ? (ACTION_CAP[action] || 'remove') : (method === 'DELETE' ? 'remove' : 'view');
+  if (!caps.includes('view') || !caps.includes(need)) return json(res, 403, { error: 'not allowed' });
   const rt = runtimeFor(inst, OWNER);
 
   if (!action && method === 'DELETE') {

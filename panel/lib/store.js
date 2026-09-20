@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { createUserStore } = require('../core/modules/users');
 
 const HOME = os.homedir();
 const USERS_FILE = path.join(HOME, '.meowmarism-pro-users.json');
@@ -20,30 +21,15 @@ function writeJson(file, data) {
   fs.renameSync(tmp, file);
 }
 
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64);
-  return `${salt.toString('hex')}:${hash.toString('hex')}`;
-}
-function checkPassword(password, stored) {
-  const [saltHex, hashHex] = String(stored || '').split(':');
-  if (!saltHex || !hashHex) return false;
-  const expected = Buffer.from(hashHex, 'hex');
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length);
-  return crypto.timingSafeEqual(actual, expected);
-}
-
+const userStore = createUserStore(USERS_FILE);
 const users = {
-  hasOwner: () => readJson(USERS_FILE, []).some((u) => u.role === 'owner'),
-  setOwner(username, password) {
-    const list = readJson(USERS_FILE, []).filter((u) => u.role !== 'owner');
-    list.push({ username, passwordHash: hashPassword(password), role: 'owner', createdAt: Date.now() });
-    writeJson(USERS_FILE, list);
-  },
+  store: userStore,
+  hasOwner: () => userStore.hasOwner(),
+  setOwner: (username, password) => userStore.resetOwner(username, password),
   verify(username, password) {
-    const u = readJson(USERS_FILE, []).find((x) => x.username === username);
-    if (!u) { checkPassword(password, `${'00'.repeat(16)}:${'00'.repeat(64)}`); return null; }
-    return checkPassword(password, u.passwordHash) ? { username: u.username, role: u.role } : null;
+    if (!userStore.verifyUser(username, password)) return null;
+    const u = userStore.findUser(username);
+    return { username: u.username, role: u.role };
   },
 };
 
