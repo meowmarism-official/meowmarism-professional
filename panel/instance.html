@@ -65,13 +65,7 @@
       <section class="page" id="page-files"><div id="filesRoot"></div></section>
       <section class="page" id="page-access"><div id="accessRoot"></div></section>
 
-      <section class="page" id="page-backups"><div id="backupsRoot"></div>
-        <form class="card" id="bkForm" style="padding:14px 16px;margin-top:14px"><div class="form-row">
-          <label>Every (hours)<input class="compact-input" id="bkHours" type="number" min="0.25" max="168" step="0.25"></label>
-          <label>Keep at most<input class="compact-input" id="bkMax" type="number" min="1" max="100"></label>
-          <label>Keep GB free<input class="compact-input" id="bkFree" type="number" min="0" max="1000"></label>
-          <button class="btn primary">Save</button></div></form>
-      </section>
+      <section class="page" id="page-backups"><div id="backupsRoot"></div></section>
 
       <section class="page" id="page-schedule"><div id="scheduleRoot"></div></section>
 
@@ -102,19 +96,7 @@
         </div>
       </section>
       <section class="page" id="page-events"><div id="eventsRoot"></div></section>
-      <section class="page" id="page-automation">
-        <div class="grid">
-          <article class="card span-6"><div class="card-head"><div class="card-title">Backup settings</div></div><div class="card-body">
-            <div class="hint" style="margin-bottom:8px">How often backups run automatically, how many are kept, and how much disk space must stay free after a backup.</div>
-            <div class="cmd-row" style="margin-bottom:6px">
-              <label class="hint">Every<input class="compact-input" type="number" min="0.25" max="168" step="0.25" id="auBackupHours" style="width:70px;margin:0 6px">hours</label>
-              <label class="hint">Max<input class="compact-input" type="number" min="1" max="100" id="auBackupMax" style="width:60px;margin:0 6px">backups</label>
-              <label class="hint">Keep<input class="compact-input" type="number" min="0" max="1000" id="auBackupFree" style="width:60px;margin:0 6px">GB free</label>
-            </div>
-            <div class="settings-actions" style="margin-top:8px"><button class="btn primary" id="auBackupSave">Save</button></div>
-          </div></article>
-        </div>
-      </section>
+      <section class="page" id="page-automation"><div id="automationRoot"></div></section>
     </main>
   </div>
 </div>
@@ -132,6 +114,7 @@
 <script src="/core/ui/console-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/format.js"></script>
+<script src="/core/ui/automation-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
 <script src="/core/ui/events-ui.js"></script>
 <script>
@@ -141,11 +124,6 @@ const tr = window.t;
 const ID = location.pathname.split('/')[2];
 const BASE = `/instance/${ID}`;
 let current = null, system = null, logTimer = null;
-const PAGE_META = {
-  overview: ['Overview', 'live server status'], performance: ['Performance', 'CPU, memory and players over time'], players: ['Players', 'click a player to manage them'],
-  console: ['Console', 'live console and commands'], settings: ['Settings', 'server.properties'], mods: ['Mods', 'installed and Modrinth'], files: ['Files', 'browse files on the server'],
-  access: ['Access', 'whitelist, operators and bans'], backups: ['Backups', 'world backups'], schedule: ['Scheduler', 'timed tasks'], manage: ['Manage', 'version, limits and removal'], automation: ['Automation', 'Automatic backups'], events: ['Events & Audit', 'joins, leaves, lifecycle and panel actions'],
-};
 const PAGE_CAP = { overview: 'view', performance: 'view', players: 'console', console: 'console', settings: 'settings', mods: 'mods', files: 'files', access: 'console', backups: 'backups', schedule: 'settings', manage: 'settings', automation: 'settings', events: 'settings' };
 const pageActive = (p) => $('page-' + p).classList.contains('active');
 
@@ -186,7 +164,8 @@ function stateOf(i) {
   return ['starting', i.state];
 }
 
-MeowInstanceShell.mount({
+const SHELL = MeowInstanceShell.mount({
+  allowed: (page) => !!current && current.caps.includes(PAGE_CAP[page]), onPage: (page) => pageLoaded(page),
   edition: 'PRO', brandSub: 'Official version', base: BASE, backLabel: 'All instances', sync: false, history: false,
   pages: ['overview', 'performance', 'players', 'console', 'settings', 'mods', 'files', 'access', 'backups', 'schedule', 'manage', 'automation', 'events'],
   t: tr, esc, sidebarEl: $('shellSidebar'), topbarEl: $('shellTopbar'),
@@ -200,19 +179,15 @@ const CONSOLE = MeowConsole.mount({
   t: tr, esc,
 });
 
-function showPage(page, push) {
-  if (!PAGE_META[page] || !current || !current.caps.includes(PAGE_CAP[page])) page = 'overview';
-  document.querySelectorAll('.nav a[data-page]').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
-  document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === 'page-' + page));
-  $('pageTitle').textContent = tr(PAGE_META[page][0]); $('pageSub').textContent = tr(PAGE_META[page][1]);
-  if (push) history.pushState({}, '', `${BASE}/${page}`);
+const showPage = (page, push) => SHELL.show(page, { push });
+function pageLoaded(page) {
   if (page === 'console') CONSOLE.scrollToEnd();
   if (page === 'backups') loadBackups();
   if (page === 'mods') MODS.show('installed');
   if (page === 'files') FILES.load('.');
   if (page === 'schedule') SCHEDULE.load();
   if (page === 'manage') loadVersion();
-  if (page === 'automation') loadAutomation();
+  if (page === 'automation') AUTOMATION.load();
   if (page === 'events') EVENTS.load();
   if (page === 'performance') PERF.load();
   if (page === 'players') PLAYERS.load();
@@ -220,8 +195,6 @@ function showPage(page, push) {
   if (page === 'settings') SETTINGS.load().catch((err) => toast(err.message, 'error'));
   if (page === 'overview') OVERVIEW.load();
 }
-document.querySelectorAll('.nav a[data-page]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); showPage(a.dataset.page, true); }));
-window.addEventListener('popstate', () => showPage(location.pathname.split('/')[3] || 'overview', false));
 
 let lastReadyAt;
 function paintUptime(i) {
@@ -305,7 +278,6 @@ const BACKUPS = MeowBackups.mount({
   el: $('backupsRoot'),
   load: async () => {
     const d = await api(`/api/instances/${ID}/backups`);
-    if (!document.activeElement || !['bkHours', 'bkMax', 'bkFree'].includes(document.activeElement.id)) { $('bkHours').value = d.settings.backupIntervalHours; $('bkMax').value = d.settings.maxBackups; $('bkFree').value = d.settings.backupMinFreeGB; }
     return { backups: d.backups, inProgress: d.backupInProgress, lastBackupAt: d.lastBackupAt, lastBackupError: d.lastBackupError };
   },
   create: () => api(`/api/instances/${ID}/backups`, { method: 'POST' }).then(() => toast(tr('Backup started'))).catch((err) => toast(err.message, 'error')),
@@ -317,10 +289,6 @@ const BACKUPS = MeowBackups.mount({
   confirm: (title, message, label) => confirmBox(title, message, label),
 });
 const loadBackups = () => BACKUPS.load();
-$('bkForm').onsubmit = async (e) => {
-  e.preventDefault();
-  try { await api(`/api/instances/${current.id}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('bkHours').value), maxBackups: Number($('bkMax').value), backupMinFreeGB: Number($('bkFree').value) } }); toast('Backup settings saved'); } catch (err) { toast(err.message); }
-};
 
 // --- scheduler ---
 const SCHEDULE = MeowSchedule.mount({
@@ -442,18 +410,23 @@ const EVENTS = MeowEvents.mount({
 });
 
 // --- automation ---
-async function loadAutomation() {
-  try {
-    const d = await api(`/api/instances/${ID}/backups`);
-    $('auBackupHours').value = d.settings.backupIntervalHours; $('auBackupMax').value = d.settings.maxBackups; $('auBackupFree').value = d.settings.backupMinFreeGB;
-  } catch (err) { toast(err.message, 'error'); }
-}
-$('auBackupSave').onclick = async () => {
-  try {
-    await api(`/api/instances/${ID}/backups/settings`, { method: 'POST', body: { backupIntervalHours: Number($('auBackupHours').value), maxBackups: Number($('auBackupMax').value), backupMinFreeGB: Number($('auBackupFree').value) } });
-    toast(tr('Saved.'));
-  } catch (err) { toast(err.message, 'error'); }
-};
+const AUTO_TASK = 'Daily auto-restart';
+const AUTOMATION = MeowAutomation.mount({
+  el: $('automationRoot'),
+  sections: ['restart', 'backup'],
+  load: async () => {
+    const [backups, schedule] = await Promise.all([api(`/api/instances/${ID}/backups`), api(`/api/instances/${ID}/schedule`)]);
+    const task = schedule.tasks.find((x) => x.name === AUTO_TASK);
+    return { ...backups.settings, autoRestartEnabled: !!(task && task.enabled), autoRestartTime: task ? task.trigger.time : '04:00', autoRestartWarnSec: task ? task.action.warnSec : 300 };
+  },
+  save: async (patch, section) => {
+    if (section === 'backup') return api(`/api/instances/${ID}/backups/settings`, { method: 'POST', body: patch });
+    const existing = (await api(`/api/instances/${ID}/schedule`)).tasks.find((x) => x.name === AUTO_TASK);
+    return api(`/api/instances/${ID}/schedule`, { method: 'POST', body: { id: existing && existing.id, name: AUTO_TASK, enabled: patch.autoRestartEnabled, trigger: { type: 'daily', time: patch.autoRestartTime }, action: { type: 'restart', warnSec: patch.autoRestartWarnSec } } });
+  },
+  toast, t: tr,
+  after: (section) => { if (section === 'restart') SCHEDULE.load(); },
+});
 
 // --- overview ---
 const OVERVIEW = MeowCharts.mount({

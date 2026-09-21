@@ -337,7 +337,9 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true });
   }
   if (action === 'logs' && method === 'GET') {
-    return json(res, 200, { logs: await rt.logs(Number(url.searchParams.get('tail')) || 300) });
+    const noise = /RCON (Listener|Client)/;
+    const logs = (await rt.logs(Number(url.searchParams.get('tail')) || 300)).split(String.fromCharCode(10)).filter((line) => !noise.test(line)).join(String.fromCharCode(10));
+    return json(res, 200, { logs });
   }
   if (action === 'command' && method === 'POST') {
     const data = await readBody(req);
