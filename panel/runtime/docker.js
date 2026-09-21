@@ -134,4 +134,4 @@ async function stats() {
   return map;
 }
 
-module.exports = { IMAGE, PREFIX, containerName, javaTag, info, create, start, stop, kill, remove, logs, command, states, stats };
+module.exports = { IMAGE, PREFIX, containerName, javaTag, createArgs, info, create, start, stop, kill, remove, logs, command, states, stats };
