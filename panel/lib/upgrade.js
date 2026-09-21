@@ -72,7 +72,7 @@ function createUpgrades(deps) {
     if (!VERSION_RE.test(version)) throw new Error('pick a Minecraft version');
     if (version === inst.version) throw new Error('that is already the installed version');
     if (compare(version, inst.version) < 0 && !allowDowngrade) throw new Error('going to an older Minecraft version can damage the world, confirm it explicitly');
-    const versions = await listVersions(inst.type);
+    const versions = await (deps.listVersions || listVersions)(inst.type);
     if (!versions.includes(version)) throw new Error('that Minecraft version is not available for this server type');
     start(inst, 'upgrade', async (log) => {
       const wasRunning = deps.isRunning(inst);
@@ -83,11 +83,22 @@ function createUpgrades(deps) {
       const backup = ok ? await newestBackup(b) : null;
       if (!ok && b.api.worldDirNames().length) throw new Error('backup failed, nothing was changed');
       log(backup && backup !== before ? `backup done: ${backup}` : 'no world yet, nothing to back up');
-      writeRecord(inst, { at: Date.now(), from: inst.version, to: version, backup: backup !== before ? backup : null, rolledBack: false });
+      const from = inst.version;
+      const record = { at: Date.now(), from, to: version, backup: backup !== before ? backup : null, rolledBack: false };
+      writeRecord(inst, record);
       log(`recreating the container on Minecraft ${version}`);
       inst.version = version;
       deps.save(inst);
-      await deps.recreate(inst, wasRunning);
+      try {
+        await deps.recreate(inst, wasRunning);
+      } catch (err) {
+        log(`the new version did not start, going back to ${from}`);
+        inst.version = from;
+        deps.save(inst);
+        writeRecord(inst, { ...record, rolledBack: true, failed: true });
+        try { await deps.recreate(inst, wasRunning); } catch (_) {}
+        throw new Error(`the upgrade failed and Minecraft ${from} was restored (${err.message})`);
+      }
     });
   }
 
