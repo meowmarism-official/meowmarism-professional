@@ -9,7 +9,8 @@ const REPO = path.resolve(__dirname, '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((resolve) => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 
-async function start() {
+// options: hooks (path of a MEOW_TEST_HOOKS module), env (extra environment), fakeDocker (test-support/fake-docker.js stands in for the docker CLI)
+async function start({ hooks = null, env = {}, fakeDocker = false } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'meow-pro-int-'));
   const port = await freePort();
   const dir = path.join(home, 'meowmarism-pro', 'instances', 'inst1');
@@ -21,8 +22,12 @@ async function start() {
   const { createUserStore } = require(path.join(REPO, 'panel', 'core', 'modules', 'users'));
   createUserStore(path.join(home, '.meowmarism-pro-users.json')).resetOwner('owner', 'ownerpass123');
 
+  const dockerDir = path.join(home, 'fake-docker');
   const child = spawn(process.execPath, [path.join(REPO, 'panel', 'controller.js')], {
-    env: { ...process.env, HOME: home, USERPROFILE: home, CONTROLLER_PORT: String(port) },
+    env: {
+      ...process.env, HOME: home, USERPROFILE: home, CONTROLLER_PORT: String(port), ...(hooks ? { MEOW_TEST_HOOKS: hooks } : {}),
+      ...(fakeDocker ? { MEOW_FAKE_DOCKER: path.join(__dirname, 'fake-docker.js'), FAKE_DOCKER_DIR: dockerDir } : {}), ...env,
+    },
     cwd: path.join(REPO, 'panel'),
     stdio: 'ignore',
   });
@@ -41,8 +46,14 @@ async function start() {
       return { status: r.status, body: await r.json().catch(() => ({})) };
     } catch (_) { return { status: 0, body: {} }; }
   };
+  async function until(check, what, timeoutMs = 20000) {
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) { const last = await check(); if (last) return last; await sleep(250); }
+    throw new Error('timed out waiting for ' + what);
+  }
   const stop = async () => { child.kill(); await sleep(300); fs.rmSync(home, { recursive: true, force: true }); };
-  return { home, base, inst, dir, login, json, stop };
+  const dockerCalls = () => { try { return fs.readFileSync(path.join(dockerDir, 'calls.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch (_) { return []; } };
+  return { home, base, inst, dir, login, json, until, stop, dockerDir, dockerCalls };
 }
 
 module.exports = { start, sleep };

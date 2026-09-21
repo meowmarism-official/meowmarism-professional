@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/core/ui/base.css">
 <link rel="stylesheet" href="/core/ui/sidebar.css">
 <link rel="stylesheet" href="/core/ui/users-ui.css">
+<link rel="stylesheet" href="/core/ui/modpack-ui.css">
 <style>
 .hidden{display:none!important}
 .input{width:100%}
@@ -81,6 +82,7 @@ label.f span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px}
 <script src="/core/ui/system-ui.js"></script>
 <script src="/core/ui/shell.js"></script>
 <script src="/core/ui/wizard-ui.js"></script>
+<script src="/core/ui/modpack-ui.js"></script>
 <script src="/core/ui/users-ui.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -192,7 +194,8 @@ const WIZ = MeowWizard.mount({
   t: tr, esc,
   createLabel: 'Create instance',
   steps: [
-    { title: 'Create instance', hint: 'Name it and pick what it runs.',
+    { title: 'Create instance', hint: 'Start from scratch or from a modpack.', html: '<div id="w-source"></div>', when: () => modpacksOn() },
+    { title: 'Create instance', hint: 'Name it and pick what it runs.', when: () => !modpacksOn() || SOURCE.mode() === 'blank',
       html: `<div class="field"><label for="w-name">Instance name</label><input id="w-name" placeholder="survival"></div>
       <div class="field-row">
         <div class="field"><label for="w-type">Server type</label><select id="w-type"></select></div>
@@ -203,7 +206,8 @@ const WIZ = MeowWizard.mount({
         if (!/^[0-9]+[.][0-9]+([.][0-9]+)?$/.test($('w-ver').value.trim())) return 'Version must look like 1.21.1';
         return null;
       } },
-    { title: 'Resources', hint: 'How much of this machine the instance may use.',
+    { title: 'Modpack', hint: 'Search Modrinth and pick a version.', html: '<div id="w-modpack"></div>', when: () => modpackMode(), validate: () => PICKER.validate() },
+    { title: 'Resources', hint: 'How much of this machine the instance may use.', onShow: () => { const p = modpackMode() && PICKER.value(); if (p) $('w-mem').value = p.ramMB; },
       html: `<div class="field-row">
         <div class="field"><label for="w-mem">Memory (MB)</label><input id="w-mem" type="number" value="2048" step="256" min="512"></div>
         <div class="field"><label for="w-cpu">CPUs</label><input id="w-cpu" type="number" value="2" step="0.25" min="0.25"></div>
@@ -225,13 +229,31 @@ const WIZ = MeowWizard.mount({
   ],
   onOpen: () => { $('w-type').innerHTML = system.types.map((x) => `<option value="${esc(x)}">${esc(x.charAt(0) + x.slice(1).toLowerCase())}</option>`).join(''); },
   create: async () => {
-    const body = { name: $('w-name').value.trim(), type: $('w-type').value, version: $('w-ver').value.trim(), memoryMB: Number($('w-mem').value), cpus: Number($('w-cpu').value), port: Number($('w-port').value), backupIntervalHours: Number($('w-bkHours').value), maxBackups: Number($('w-bkMax').value) };
+    const pack = modpackMode() ? PICKER.value() : null;
+    const body = { name: pack ? pack.name : $('w-name').value.trim(), ...(pack ? { modpack: { versionId: pack.versionId } } : {}), type: $('w-type').value, version: $('w-ver').value.trim(), memoryMB: Number($('w-mem').value), cpus: Number($('w-cpu').value), port: Number($('w-port').value), backupIntervalHours: Number($('w-bkHours').value), maxBackups: Number($('w-bkMax').value) };
     const r = await api('/api/instances', { method: 'POST', body });
     return r.name;
   },
-  progress: () => api('/api/create-log'),
+  progress: async () => {
+    const status = await api('/api/create-log');
+    if (status.done && !status.error) await loadList().catch(() => {});
+    return status;
+  },
   openHref: (name) => `/instance/${encodeURIComponent((cachedList.find((i) => i.name === name) || {}).id || '')}/overview`,
   onFinished: () => { $('w-name').value = ''; loadList().catch(() => {}); },
+});
+const modpacksOn = () => !!(system && system.modpacks);
+const modpackMode = () => modpacksOn() && SOURCE.mode() === 'modpack';
+const SOURCE = MeowModpack.mountSource({ el: $('w-source'), t: tr, esc, onChange: () => { WIZ.refresh(); if (modpackMode()) PICKER.reset(); } });
+const PICKER = MeowModpack.mountPicker({
+  el: $('w-modpack'), t: tr, esc,
+  loaders: ['fabric', 'forge', 'neoforge'],
+  maxRamMB: () => system.hostMemMB,
+  api: {
+    search: ({ query, offset }) => api(`/api/modpacks/search?query=${encodeURIComponent(query)}&offset=${offset}`),
+    versions: (id) => api(`/api/modpacks/${encodeURIComponent(id)}/versions`),
+    preview: (versionId) => api(`/api/modpacks/versions/${encodeURIComponent(versionId)}/preview`),
+  },
 });
 $('newBtn').onclick = () => WIZ.open();
 

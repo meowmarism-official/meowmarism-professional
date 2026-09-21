@@ -7,7 +7,10 @@ function run(args, { input, timeout = 60000 } = {}) {
   return new Promise((resolve) => {
     let out = '', err = '';
     let p;
-    try { p = spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] }); } catch (e) { resolve({ code: -1, stdout: '', stderr: String(e.message) }); return; }
+    try {
+      // Tests point MEOW_FAKE_DOCKER at a script that stands in for the docker CLI.
+      p = process.env.MEOW_FAKE_DOCKER ? spawn(process.execPath, [process.env.MEOW_FAKE_DOCKER, ...args], { stdio: ['pipe', 'pipe', 'pipe'] }) : spawn('docker', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) { resolve({ code: -1, stdout: '', stderr: String(e.message) }); return; }
     const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch (_) {} }, timeout);
     p.stdout.on('data', (d) => { out += d; if (out.length > 4 * 1024 * 1024) out = out.slice(-2 * 1024 * 1024); });
     p.stderr.on('data', (d) => { err += d; if (err.length > 1024 * 1024) err = err.slice(-512 * 1024); });
@@ -36,6 +39,13 @@ async function info() {
   return { ok: true, version: r.stdout.trim() };
 }
 
+// Modpack instances pin the exact loader version from the pack; without a loaderVersion the image picks its own default.
+const LOADER_VARS = { FABRIC: 'FABRIC_LOADER_VERSION', FORGE: 'FORGE_VERSION', NEOFORGE: 'NEOFORGE_VERSION' };
+function loaderEnv(inst) {
+  const name = LOADER_VARS[inst.type];
+  return inst.loaderVersion && name ? ['-e', `${name}=${inst.loaderVersion}`] : [];
+}
+
 function createArgs(inst, owner) {
   const args = [
     'create', '--name', containerName(inst),
@@ -44,7 +54,7 @@ function createArgs(inst, owner) {
     '--memory', `${inst.memoryMB + 768}m`, '--memory-swap', `${inst.memoryMB + 768}m`,
     '--cpus', String(inst.cpus),
     '-p', `${inst.port}:25565`,
-    '-e', 'EULA=TRUE', '-e', `TYPE=${inst.type}`, '-e', `VERSION=${inst.version}`,
+    '-e', 'EULA=TRUE', '-e', `TYPE=${inst.type}`, '-e', `VERSION=${inst.version}`, ...loaderEnv(inst),
     '-e', `MEMORY=${inst.memoryMB}m`, '-e', `UID=${owner.uid}`, '-e', `GID=${owner.gid}`,
     '-v', `${inst.dir}:/data`,
     `${IMAGE}:${javaTag(inst.version)}`,
@@ -134,4 +144,4 @@ async function stats() {
   return map;
 }
 
-module.exports = { IMAGE, PREFIX, containerName, javaTag, createArgs, info, create, start, stop, kill, remove, logs, command, states, stats };
+module.exports = { IMAGE, PREFIX, containerName, javaTag, createArgs, loaderEnv, info, create, start, stop, kill, remove, logs, command, states, stats };

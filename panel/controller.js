@@ -20,6 +20,17 @@ const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const systemInfo = require('./core/modules/system-info');
 const events = require('./lib/events');
 const { createServerIcon } = require('./core/modules/server-icon');
+const { inspectMrpack } = require('./core/modules/modpack');
+const { installModpack } = require('./core/modules/modpack-install');
+const { withServerPort } = require('./core/modules/properties');
+
+// Tests replace Modrinth and the file downloads through a module named in MEOW_TEST_HOOKS.
+const testHooks = process.env.MEOW_TEST_HOOKS ? require(process.env.MEOW_TEST_HOOKS) : {};
+// Modpack picking is unfinished and stays hidden unless switched on.
+const MODPACKS_ENABLED = process.env.MEOW_EXPERIMENTAL_MODPACKS === '1';
+const modpackApi = testHooks.modpackApi || require('./core/modules/modpack-api').createModpackApi();
+const modpackPreview = require('./core/modules/modpack-preview').createModpackPreview({ api: modpackApi, download: testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified });
+const MODPACK_TYPES = ['FABRIC', 'FORGE', 'NEOFORGE'];
 const startup = require('./lib/startup');
 const schedulerCore = require('./core/modules/scheduler');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
@@ -121,7 +132,7 @@ const publicInstance = (i, st, stat, caps) => ({
   startedAt: stat ? stat.startedAt || null : null, ...startupInfo(i),
 });
 
-function validateSpec(data, current) {
+function validateSpec(data, current, fromPack = false) {
   const spec = {
     name: current ? current.name : String(data.name || '').trim(),
     type: current ? current.type : String(data.type || '').toUpperCase(),
@@ -132,8 +143,8 @@ function validateSpec(data, current) {
   };
   if (!current) {
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(spec.name)) return { error: 'name: 1-32 letters, digits, - or _' };
-    if (!TYPES.includes(spec.type)) return { error: 'unknown server type' };
-    if (!/^\d+\.\d+(\.\d+)?$/.test(spec.version)) return { error: 'version must look like 1.21.1' };
+    if (!fromPack && !TYPES.includes(spec.type)) return { error: 'unknown server type' };
+    if (!fromPack && !/^\d+\.\d+(\.\d+)?$/.test(spec.version)) return { error: 'version must look like 1.21.1' };
   }
   if (!Number.isInteger(spec.port) || spec.port < 1024 || spec.port > 65535) return { error: 'port must be 1024-65535' };
   if (!Number.isFinite(spec.memoryMB) || spec.memoryMB < 512 || spec.memoryMB > HOST_MEM_MB) return { error: `memory must be 512-${HOST_MEM_MB} MB` };
@@ -172,6 +183,88 @@ const upgrades = createUpgrades({
 
 // Creating a container can take minutes on the first run (image download), so it runs in the background with a log.
 let createJob = null;
+
+// Waits until the container reports healthy; stillWanted lets the blank flow notice a removed instance.
+async function waitForReady(inst, rt, job, log, stillWanted = () => true) {
+  const seen = new Set();
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000));
+    if (!stillWanted()) throw new Error('the instance was removed');
+    await refreshStates();
+    const st = stateCache.states[docker.containerName(inst)];
+    const text = await rt.logs(30).catch(() => '');
+    for (const l of text.split(String.fromCharCode(10))) if (l.trim() && !seen.has(l)) { seen.add(l); log(l); }
+    job.progress = Math.max(job.progress, Math.min(95, 45 + seen.size));
+    if (st && st.state === 'running' && st.health === 'healthy') return;
+    if (st && (st.state === 'exited' || st.state === 'dead')) throw new Error('the server stopped while starting, see the log');
+  }
+  throw new Error('the server did not become ready in time');
+}
+
+// A modpack instance is built in <name>.creating and only becomes visible (folder, container, list entry) when the server is up.
+function createFromModpack(spec, body, versionId) {
+  const job = { lines: [], progress: 5, done: false, error: null, name: spec.name, phase: 'Reading modpack' };
+  createJob = job;
+  const log = (line) => job.lines.push(line);
+  const phase = (label, progress) => { job.phase = label; if (progress != null) job.progress = Math.max(job.progress, Math.min(99, progress)); };
+  const dir = path.join(INSTANCES_DIR, spec.name);
+  const staging = `${dir}.creating`;
+  let packTmp = null, inst = null, renamed = false, registered = false;
+  (async () => {
+    fs.mkdirSync(INSTANCES_DIR, { recursive: true });
+    if (fs.existsSync(dir) || fs.existsSync(staging)) throw new Error('a folder with this name already exists');
+    packTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'meow-pack-'));
+    const version = await modpackApi.getVersion(versionId);
+    const file = path.join(packTmp, 'pack.mrpack');
+    await (testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified)(version.file.url, file, version.file.sha512, version.file.size);
+    const inspected = inspectMrpack(file);
+    const type = inspected.loader.toUpperCase();
+    if (!MODPACK_TYPES.includes(type)) throw new Error(`This pack needs ${inspected.loader}, which PRO cannot run yet.`);
+    phase('Downloading modpack files', 15);
+    fs.mkdirSync(staging, { recursive: true });
+    await installModpack({
+      mrpack: file, inspected, instanceDir: staging,
+      source: { projectId: version.projectId, versionId: version.id, packVersion: version.versionNumber },
+      download: testHooks.modpackFileDownload, log,
+      progress: ({ phase: p, done, total }) => {
+        if (p === 'downloads') phase(`Downloading modpack files ${done} / ${total}`, 15 + Math.round(30 * done / Math.max(1, total)));
+        else if (p === 'overrides') phase('Applying overrides', 46);
+      },
+    });
+    phase('Finalizing instance', 48);
+    // The port in the file is the one inside the container; the wizard's port is only published on the host.
+    const props = path.join(staging, 'server.properties');
+    if (fs.existsSync(props)) fs.writeFileSync(props, withServerPort(fs.readFileSync(props, 'utf8'), 25565));
+    const icon = path.join(staging, 'server-icon.png');
+    if (!fs.existsSync(icon)) { try { fs.copyFileSync(path.join(__dirname, 'core', 'brand', 'server-icon.png'), icon); } catch (_) {} }
+    (testHooks.renameDir || fs.renameSync)(staging, dir);
+    renamed = true;
+    inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, type, version: inspected.minecraft, loaderVersion: inspected.loaderVersion, createdAt: Date.now(), dir };
+    const hours = Number(body.backupIntervalHours), keep = Number(body.maxBackups);
+    if (Number.isFinite(hours) && hours >= 0.25 && hours <= 168 && Number.isInteger(keep) && keep >= 1 && keep <= 100) inst.backup = { backupIntervalHours: hours, maxBackups: keep };
+    phase('Starting the server', 50);
+    const rt = runtimeFor(inst, OWNER);
+    log('Creating the container (the first start downloads the Docker image)');
+    await rt.removeContainer();
+    await rt.createContainer();
+    await rt.startAsync();
+    await waitForReady(inst, rt, job, log);
+    const list = instances.list();
+    if (list.some((i) => i.name === inst.name || i.port === inst.port)) throw new Error('the name or port was taken while this instance was being created');
+    instances.save([...list, inst]);
+    registered = true;
+    backups.forInstance(inst, OWNER);
+    phase('Ready', 100);
+    job.progress = 100; job.done = true;
+  })().catch(async (err) => {
+    job.error = err.message || 'creation failed'; job.done = true;
+    if (inst) { await runtimeFor(inst, OWNER).removeContainer().catch(() => {}); forgetRuntime(inst.id); }
+    fs.rmSync(staging, { recursive: true, force: true });
+    if (renamed && !registered) fs.rmSync(dir, { recursive: true, force: true });
+  }).finally(() => { if (packTmp) fs.rmSync(packTmp, { recursive: true, force: true }); });
+}
+
 let creatingNow = false;
 function createInstanceInBackground(inst) {
   const job = { lines: [], progress: 5, done: false, error: null, name: inst.name };
@@ -187,20 +280,7 @@ function createInstanceInBackground(inst) {
     await rt.startAsync();
     job.progress = 45;
     backups.forInstance(inst, OWNER);
-    const seen = new Set();
-    const deadline = Date.now() + 10 * 60 * 1000;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 2000));
-      if (!instances.list().some((i) => i.id === inst.id)) throw new Error('the instance was removed');
-      await refreshStates();
-      const st = stateCache.states[docker.containerName(inst)];
-      const text = await rt.logs(30).catch(() => '');
-      for (const l of text.split(String.fromCharCode(10))) if (l.trim() && !seen.has(l)) { seen.add(l); log(l); }
-      job.progress = Math.min(95, 45 + seen.size);
-      if (st && st.state === 'running' && st.health === 'healthy') return;
-      if (st && (st.state === 'exited' || st.state === 'dead')) throw new Error('the server stopped while starting, see the log');
-    }
-    throw new Error('the server did not become ready in time');
+    await waitForReady(inst, rt, job, log, () => instances.list().some((i) => i.id === inst.id));
   })().then(() => {
     job.progress = 100; job.done = true;
     instances.save(instances.list().map((i) => { if (i.id === inst.id) delete i.creating; return i; }));
@@ -271,7 +351,7 @@ async function handleApi(req, res, url) {
     return json(res, 200, systemInfo.collect({ dir: DATA_DIR, extra: { docker: d.ok ? `${d.version || 'running'}` : `not reachable` } }));
   }
   if (p === '/api/system' && method === 'GET') {
-    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
+    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, modpacks: MODPACKS_ENABLED, types: TYPES });
   }
   if (p === '/api/instances' && method === 'GET') {
     const withStats = url.searchParams.get('stats') === '1';
@@ -281,17 +361,34 @@ async function handleApi(req, res, url) {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed' });
     return json(res, 200, createJob || { lines: [], progress: 0, done: true, error: null, name: null });
   }
+  if (MODPACKS_ENABLED && p.startsWith('/api/modpacks/') && method === 'GET') {
+    if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
+    const answer = async (promise) => { try { return json(res, 200, await promise); } catch (err) { return json(res, err.status || 502, { error: err.message }); } };
+    const preview = /^\/api\/modpacks\/versions\/([\w-]+)\/preview$/.exec(p);
+    const versions = /^\/api\/modpacks\/([\w-]+)\/versions$/.exec(p);
+    const q = new URL(req.url, 'http://x').searchParams;
+    if (p === '/api/modpacks/search') return answer(modpackApi.searchModpacks({ query: q.get('query') || '', offset: q.get('offset') }));
+    if (preview) return answer(modpackPreview.preview(preview[1]));
+    if (versions) return answer(modpackApi.getVersions(versions[1]));
+    return json(res, 404, { error: 'not found' });
+  }
   if (p === '/api/instances' && method === 'POST') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
     if (creatingNow || (createJob && !createJob.done)) return json(res, 409, { error: 'another instance is being created' });
     creatingNow = true;
     try {
     const body = await readBody(req);
-    const { spec, error } = validateSpec(body, null);
+    const versionId = body.modpack ? String(body.modpack.versionId || '') : '';
+    if (body.modpack && (!MODPACKS_ENABLED || !/^[\w-]{1,64}$/.test(versionId))) return json(res, 400, { error: 'invalid modpack' });
+    const { spec, error } = validateSpec(body, null, !!body.modpack);
     if (error) return json(res, 400, { error });
     const list = instances.list();
     if (list.some((i) => i.name === spec.name)) return json(res, 409, { error: 'an instance with this name exists' });
     if (list.some((i) => i.port === spec.port) || !(await portFree(spec.port))) return json(res, 409, { error: `port ${spec.port} is in use` });
+    if (body.modpack) {
+      createFromModpack(spec, body, versionId);
+      return json(res, 201, { ok: true, name: spec.name });
+    }
     const inst = { id: crypto.randomBytes(4).toString('hex'), ...spec, createdAt: Date.now(), creating: true };
     inst.dir = path.join(INSTANCES_DIR, inst.name);
     const hours = Number(body.backupIntervalHours), keep = Number(body.maxBackups);
@@ -636,6 +733,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+try {
+  for (const entry of fs.readdirSync(INSTANCES_DIR)) if (entry.endsWith('.creating')) fs.rmSync(path.join(INSTANCES_DIR, entry), { recursive: true, force: true });
+} catch (_) {}
 startPolling();
 // A creation that was interrupted by a restart of the panel is resumed.
 for (const inst of instances.list()) if (inst.creating && !createJob) createInstanceInBackground(inst);
