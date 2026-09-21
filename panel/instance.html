@@ -58,7 +58,7 @@
 
       <section class="page" id="page-console"><div id="consoleRoot"></div></section>
 
-      <section class="page" id="page-settings"><div id="settingsRoot"></div></section>
+      <section class="page" id="page-settings"><div id="serverIconRoot"></div><div id="settingsRoot"></div></section>
 
       <section class="page" id="page-mods"><div id="modsRoot"></div></section>
 
@@ -115,6 +115,7 @@
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/format.js"></script>
 <script src="/core/ui/automation-ui.js"></script>
+<script src="/core/ui/server-icon-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
 <script src="/core/ui/events-ui.js"></script>
 <script>
@@ -407,6 +408,14 @@ const EVENTS = MeowEvents.mount({
   fmtClock: (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   t: tr, esc,
   isVisible: () => pageActive('events'), refreshMs: 8000,
+});
+
+// --- server icon ---
+const SERVER_ICON = MeowServerIcon.mount({
+  el: $('serverIconRoot'),
+  src: () => `/api/instances/${ID}/server-icon?ts=${Date.now()}`,
+  send: (body) => api(`/api/instances/${ID}/server-icon`, { method: 'POST', body }),
+  toast, t: tr,
 });
 
 // --- automation ---

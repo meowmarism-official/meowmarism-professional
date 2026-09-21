@@ -19,6 +19,7 @@ const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const systemInfo = require('./core/modules/system-info');
 const events = require('./lib/events');
+const { createServerIcon } = require('./core/modules/server-icon');
 const startup = require('./lib/startup');
 const schedulerCore = require('./core/modules/scheduler');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
@@ -149,7 +150,7 @@ const ACTION_CAP = {
   logs: 'console', command: 'console', players: 'console', access: 'console',
   start: 'power', stop: 'power', restart: 'power', kill: 'power',
   files: 'files', mods: 'mods', modrinth: 'mods', backups: 'backups',
-  events: 'settings', settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
+  events: 'settings', 'server-icon': 'settings', settings: 'settings', schedule: 'settings', limits: 'settings', upgrade: 'settings', metrics: 'view',
 };
 const usersApi = createUsersApi({ store: users.store, session: (req) => sessions.get(cookieToken(req)), revokeSessions: (u) => sessions.destroyUser(u) });
 
@@ -319,6 +320,17 @@ async function handleApi(req, res, url) {
     });
   }
   if (action === 'events' && method === 'GET') return json(res, 200, events.list(inst.name));
+  if (action === 'server-icon') {
+    const icon = createServerIcon({ dir: inst.dir, defaultIcon: path.join(__dirname, 'core', 'brand', 'server-icon.png') });
+    if (method === 'GET') {
+      if (!icon.exists()) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+      return fs.createReadStream(icon.file).pipe(res);
+    }
+    if (method === 'POST') {
+      try { icon.apply(await readBody(req, 512 * 1024)); return json(res, 200, { ok: true }); } catch (err) { return json(res, 400, { ok: false, error: err.message || 'invalid image' }); }
+    }
+  }
 
   if (!action && method === 'DELETE') {
     const data = await readBody(req).catch(() => ({}));
