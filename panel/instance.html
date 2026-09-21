@@ -112,6 +112,7 @@
 <script src="/core/ui/mods-ui.js"></script>
 <script src="/core/ui/console-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
+<script src="/core/ui/palette-ui.js"></script>
 <script src="/core/ui/format.js"></script>
 <script src="/core/ui/automation-ui.js"></script>
 <script src="/core/ui/server-icon-ui.js"></script>
@@ -417,6 +418,20 @@ const EVENTS = MeowEvents.mount({
   fmtClock: (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
   t: tr, esc,
   isVisible: () => pageActive('events'), refreshMs: 8000,
+});
+
+// --- command palette ---
+MeowPalette.mount({
+  goto: (page) => showPage(page, true),
+  focusConsole: () => CONSOLE.focus(),
+  focusSearch: () => CONSOLE.focusSearch(),
+  extra: () => [
+    { label: 'Restart server…', sub: 'Open scheduled restart controls', key: '', run: () => showPage('automation', true) },
+    { label: 'Start server', sub: 'Start Minecraft if offline', key: '', run: () => power('start', 'Start') },
+    { label: 'Stop server', sub: 'Clean shutdown', key: '', run: () => power('stop', 'Stop') },
+    ...(PLAYERS.players().list || []).map((p) => ({ label: p.name, sub: `Player · ${MeowFormat.duration(p.sessionSec)} online`, key: 'player', run: () => { showPage('players', true); PLAYERS.open(p.name); } })),
+  ],
+  esc,
 });
 
 // --- server icon ---
