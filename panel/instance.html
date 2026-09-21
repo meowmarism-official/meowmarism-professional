@@ -13,7 +13,6 @@
 <link rel="stylesheet" href="/core/ui/files-ui.css">
 <link rel="stylesheet" href="/core/ui/settings-ui.css">
 <link rel="stylesheet" href="/core/ui/access-ui.css">
-<link rel="stylesheet" href="/core/ui/players-ui.css">
 <link rel="stylesheet" href="/core/ui/charts-ui.css">
 <style>
 .hidden{display:none!important}
@@ -191,7 +190,7 @@ function pageLoaded(page) {
   if (page === 'automation') AUTOMATION.load();
   if (page === 'events') EVENTS.load();
   if (page === 'performance') PERF.load();
-  if (page === 'players') PLAYERS.load();
+  if (page === 'players') { PLAYERS.load(); PLAYERS_CHART.load(); }
   if (page === 'access') ACCESS.load();
   if (page === 'settings') SETTINGS.load().catch((err) => toast(err.message, 'error'));
   if (page === 'overview') OVERVIEW.load();
@@ -347,7 +346,6 @@ const PERF = MeowCharts.mount({
   load: metricPoints,
   charts: [
     { title: 'CPU / RAM', series: CPU_RAM, max: 100 },
-    { title: 'Players', series: [{ key: 'players', label: 'Players', color: '#5f9ee8', format: (v) => String(Math.round(v)) }], minMax: 3 },
   ],
   t: tr, esc,
   isVisible: () => pageActive('performance'),
@@ -356,10 +354,21 @@ const PERF = MeowCharts.mount({
 // --- players ---
 const PLAYERS = MeowPlayers.mount({
   el: $('playersRoot'),
-  load: () => api(`/api/instances/${current.id}/players`),
-  detail: (name) => api(`/api/instances/${current.id}/players/detail?name=${encodeURIComponent(name)}`),
-  act: (action, player, o) => api(`/api/instances/${current.id}/players/action`, { method: 'POST', body: { action, player, value: o.value, reason: o.reason } }),
-  t: tr, esc, toast,
+  chartHtml: '<div id="playersChartRoot" style="margin-top:12px"></div>',
+  load: () => api(`/api/instances/${ID}/players`),
+  history: (name) => api(`/api/instances/${ID}/players/detail?name=${encodeURIComponent(name)}`),
+  act: (action, player, o) => api(`/api/instances/${ID}/players/action`, { method: 'POST', body: { action, player, value: o.value, reason: o.reason } }),
+  isRunning: () => !!current && current.state === 'running',
+  confirm: (title, message, label, danger) => confirmBox(title, message, label),
+  onUpdate: (p) => { onlineNames = p.list.map((x) => x.name); $('ovPlayers').textContent = `${p.online} / ${p.max ?? '-'}`; },
+  toast, t: tr, esc,
+  isVisible: () => pageActive('players'),
+});
+const PLAYERS_CHART = MeowCharts.mount({
+  el: $('playersChartRoot'),
+  load: metricPoints,
+  charts: [{ title: 'Player count history', series: [{ key: 'players', label: 'Players', color: '#5f9ee8', format: (v) => String(Math.round(v)) }], minMax: 3 }],
+  t: tr, esc,
   isVisible: () => pageActive('players'),
 });
 
@@ -446,7 +455,7 @@ const OVERVIEW = MeowCharts.mount({
   isVisible: () => pageActive('overview'),
 });
 $('ovPlayers').textContent = '-';
-async function pollPlayers() { try { const s = await api(`/api/instances/${ID}/players`); onlineNames = s.list.map((x) => x.name); $('ovPlayers').textContent = `${s.online} / ${s.max ?? '-'}`; } catch (_) {} }
+async function pollPlayers() { try { PLAYERS.update(await api(`/api/instances/${ID}/players`)); } catch (_) {} }
 
 async function start() {
   try { system = await api('/api/system'); } catch (_) { return; }
