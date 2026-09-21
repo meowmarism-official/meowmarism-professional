@@ -10,7 +10,7 @@ const INSTANCES_FILE = path.join(HOME, '.meowmarism-pro-instances.json');
 const SESSIONS_FILE = path.join(HOME, '.meowmarism-pro-sessions.json');
 const DATA_DIR = path.join(HOME, 'meowmarism-pro');
 const INSTANCES_DIR = path.join(DATA_DIR, 'instances');
-const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_) { return fallback; }

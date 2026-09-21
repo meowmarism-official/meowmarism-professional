@@ -229,7 +229,8 @@ async function handleApi(req, res, url) {
     if (!user) { loginLimiter.fail(ip, username); return json(res, 401, { error: 'wrong username or password' }); }
     loginLimiter.success(ip, username);
     const token = sessions.create(user);
-    res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_MS / 1000}${SECURE_COOKIE || isHttps(req) ? '; Secure' : ''}`);
+    const maxAge = data.remember ? `; Max-Age=${SESSION_MAX_AGE_MS / 1000}` : '';
+    res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/${maxAge}${SECURE_COOKIE || isHttps(req) ? '; Secure' : ''}`);
     return json(res, 200, { ok: true });
   }
 
@@ -238,7 +239,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/logout' && method === 'POST') {
     sessions.destroy(cookieToken(req));
-    res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
     return json(res, 200, { ok: true });
   }
   const me = users.store.findUser(session.username);
