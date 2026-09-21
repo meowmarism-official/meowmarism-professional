@@ -33,7 +33,7 @@
       <section class="page" id="page-overview">
         <div class="status-strip" id="statusStrip">
           <div class="status-main"><div class="status-kicker">Server status</div><div class="status-state"><span class="state-dot"></span><span id="statusState">-</span></div><div class="status-note" id="statusNote"></div></div>
-          <div class="status-cell"><div class="status-kicker">Server</div><div class="big-value" id="ovType">-</div><div class="small-value" id="ovPort"></div></div>
+          <div class="status-cell"><div class="status-kicker">Server uptime</div><div class="big-value" id="ovType">-</div><div class="small-value" id="ovPort">not started</div></div>
           <div class="status-cell"><div class="status-kicker">Players</div><div class="big-value" id="ovPlayers">-</div><div class="small-value">currently online</div></div>
           <div class="status-cell"><div class="status-kicker">CPU</div><div class="big-value" id="ovCpu">-</div><div class="small-value" id="ovCpuLimit"></div></div>
           <div class="status-cell"><div class="status-kicker">RAM</div><div class="big-value" id="ovRam">-</div><div class="small-value" id="ovRamLimit"></div></div>
@@ -46,6 +46,7 @@
               <div class="kv-row"><span>Server type</span><b id="kvType">-</b></div>
               <div class="kv-row"><span>Version</span><b id="kvVersion">-</b></div>
               <div class="kv-row"><span>Port</span><b id="kvPort">-</b></div>
+              <div class="kv-row"><span>Startup time</span><b id="kvStartup">-</b></div>
               <div class="kv-row"><span>CPU limit</span><b id="kvCpu">-</b></div>
               <div class="kv-row"><span>Memory limit</span><b id="kvMem">-</b></div>
             </div></article>
@@ -130,6 +131,7 @@
 <script src="/core/ui/mods-ui.js"></script>
 <script src="/core/ui/console-ui.js"></script>
 <script src="/core/ui/players-ui.js"></script>
+<script src="/core/ui/format.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
 <script src="/core/ui/events-ui.js"></script>
 <script>
@@ -221,13 +223,25 @@ function showPage(page, push) {
 document.querySelectorAll('.nav a[data-page]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); showPage(a.dataset.page, true); }));
 window.addEventListener('popstate', () => showPage(location.pathname.split('/')[3] || 'overview', false));
 
+let lastReadyAt;
+function paintUptime(i) {
+  const up = i.state === 'running' && i.startedAt;
+  $('ovType').textContent = up ? MeowFormat.duration((Date.now() - i.startedAt) / 1000) : '-';
+  $('ovPort').textContent = up ? new Date(i.startedAt).toLocaleString() : tr('not started');
+}
+setInterval(() => { if (current) paintUptime(current); }, 1000);
 function paint(i) {
   const [cls, label] = stateOf(i);
   $('phasePill').className = 'phase-pill ' + cls; $('phaseText').textContent = tr(label);
   $('liveRow').classList.toggle('online', i.state === 'running'); $('connectionText').textContent = tr(i.state === 'running' ? 'live' : 'offline');
   $('statusStrip').className = 'status-strip ' + cls; $('statusState').textContent = tr(label);
   $('statusNote').textContent = i.state === 'running' ? '' : tr('Server is not running');
-  $('ovType').textContent = i.type.toLowerCase() + ' ' + i.version; $('ovPort').textContent = tr('port') + ' ' + i.port;
+  paintUptime(i);
+  $('kvStartup').textContent = i.startupMs == null ? '-' : MeowFormat.startup(i.startupMs);
+  if (i.readyAt && i.readyAt !== lastReadyAt) {
+    if (lastReadyAt !== undefined && i.startupMs != null && Date.now() - i.readyAt < 30000) toast(tr('Server ready · startup {t}', { t: MeowFormat.startup(i.startupMs) }));
+    lastReadyAt = i.readyAt;
+  }
   $('ovCpu').textContent = i.cpuUsage == null ? '-' : i.cpuUsage.toFixed(0) + '%'; $('ovCpuLimit').textContent = tr('limit') + ' ' + i.cpus + ' CPU';
   const used = i.memUsage ? i.memUsage.split('/')[0].trim() : '-';
   $('ovRam').textContent = used; $('ovRamLimit').textContent = tr('limit') + ' ' + (i.memoryMB + 768) + ' MB';

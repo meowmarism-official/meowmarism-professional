@@ -19,6 +19,7 @@ const { createPanelSettings } = require('./core/modules/panel-settings');
 const { effectiveCaps, hasPanelCap } = require('./core/modules/users');
 const systemInfo = require('./core/modules/system-info');
 const events = require('./lib/events');
+const startup = require('./lib/startup');
 const schedulerCore = require('./core/modules/scheduler');
 const { createUpgrades, listVersions, removeRecord } = require('./lib/upgrade');
 const { createMetrics } = require('./core/modules/metrics');
@@ -111,10 +112,12 @@ function toolsFor(inst) {
   }
   return t;
 }
+const startupInfo = (i) => startup.info(docker.containerName(i));
 const publicInstance = (i, st, stat, caps) => ({
   caps, id: i.id, name: i.name, type: i.type, version: i.version, port: i.port, memoryMB: i.memoryMB, cpus: i.cpus,
   state: st ? st.state : 'missing', health: st ? st.health : 'none',
   cpuUsage: stat ? stat.cpu : null, memUsage: stat ? stat.mem : null,
+  startedAt: stat ? stat.startedAt || null : null, ...startupInfo(i),
 });
 
 function validateSpec(data, current) {
@@ -639,12 +642,18 @@ async function pollPlayers() {
 setInterval(pollPlayers, 10000).unref();
 
 const lastState = new Map();
+const lastReady = new Map();
 function trackLifecycle() {
   for (const inst of instances.list()) {
     const st = stateCache.states[docker.containerName(inst)];
     const now = st ? st.state : 'missing';
     const before = lastState.get(inst.id);
     lastState.set(inst.id, now);
+    const info = startup.info(docker.containerName(inst));
+    if (info.readyAt && lastReady.get(inst.id) !== info.readyAt) {
+      lastReady.set(inst.id, info.readyAt);
+      if (info.startupMs != null) events.add(inst.name, 'events', { type: 'ready', title: 'Server ready', detail: `Startup ${(info.startupMs / 1000).toFixed(1)}s`, severity: 'good' });
+    }
     if (!before || before === now) continue;
     if (now === 'running') events.add(inst.name, 'events', { type: 'start', title: 'Server started', severity: 'good' });
     else if (before === 'running' && (now === 'exited' || now === 'dead')) {

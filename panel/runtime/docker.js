@@ -120,6 +120,17 @@ async function stats() {
     if (!name || !name.startsWith(PREFIX)) continue;
     map[name] = { cpu: parseFloat(cpu) || 0, mem: mem || '', memMB: parseMemMB(mem) };
   }
+  const names = Object.keys(map);
+  if (names.length) {
+    const started = await run(['inspect', '-f', '{{.Name}}|{{.State.StartedAt}}', ...names], { timeout: 10000 });
+    if (started.code === 0) {
+      for (const line of started.stdout.split(String.fromCharCode(10))) {
+        const [n, at] = line.split('|');
+        const key = (n || '').replace(/^\//, '');
+        if (map[key]) map[key].startedAt = Date.parse(at) || null;
+      }
+    }
+  }
   return map;
 }
 

@@ -3,10 +3,20 @@
 const docker = require('./docker');
 const { assertRuntime } = require('../core/modules/runtime-contract');
 
+const startup = require('../lib/startup');
+
 const stateCache = { states: {}, stats: {} };
+const sawDown = new Set();
 
 async function refreshStates() {
   stateCache.states = await docker.states();
+  for (const [name, st] of Object.entries(stateCache.states)) {
+    const ready = st.state === 'running' && (st.health === 'healthy' || st.health === 'none');
+    if (!ready) sawDown.add(name);
+    // After a restart request the old container still looks ready for a moment, so wait until it was seen going down.
+    if (ready && (!startup.pending(name) || sawDown.has(name))) { startup.ready(name); sawDown.delete(name); }
+    if (st.state !== 'running' && !startup.pending(name)) startup.stopped(name);
+  }
 }
 
 async function refreshStats() {
@@ -38,6 +48,7 @@ function createRuntime(inst, owner) {
     isReady: () => st().state === 'running' && st().health === 'healthy',
     start() {
       if (st().state === 'running') return false;
+      startup.begin(name); sawDown.delete(name);
       settle(docker.start(inst)).catch(() => {});
       return true;
     },
@@ -47,6 +58,7 @@ function createRuntime(inst, owner) {
       return true;
     },
     restart() {
+      startup.begin(name); sawDown.delete(name);
       settle(docker.stop(inst).catch(() => {}).then(() => docker.start(inst))).catch(() => {});
       return true;
     },
@@ -71,7 +83,7 @@ function createRuntime(inst, owner) {
       return { cpuPercent: s.cpu, memoryMB: s.memMB ?? null };
     },
     // Awaitable versions with real errors, for the panel's own actions.
-    startAsync: () => settle(docker.start(inst)),
+    startAsync: () => { startup.begin(name); sawDown.delete(name); return settle(docker.start(inst)); },
     stopAsync: () => settle(docker.stop(inst)),
     killAsync: () => settle(docker.kill(inst)),
     commandAsync: (text) => enqueue(() => docker.command(inst, text)),
