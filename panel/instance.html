@@ -29,30 +29,9 @@
   <div class="content">
     <header class="topbar" id="shellTopbar"></header>
     <main class="workspace">
-      <section class="page" id="page-overview">
-        <div class="status-strip" id="statusStrip">
-          <div class="status-main"><div class="status-kicker">Server status</div><div class="status-state"><span class="state-dot"></span><span id="statusState">-</span></div><div class="status-note" id="statusNote"></div></div>
-          <div class="status-cell"><div class="status-kicker">Server uptime</div><div class="big-value" id="ovType">-</div><div class="small-value" id="ovPort">not started</div></div>
-          <div class="status-cell"><div class="status-kicker">Players</div><div class="big-value" id="ovPlayers">-</div><div class="small-value">currently online</div></div>
-          <div class="status-cell"><div class="status-kicker">CPU</div><div class="big-value" id="ovCpu">-</div><div class="small-value" id="ovCpuLimit"></div></div>
-          <div class="status-cell"><div class="status-kicker">RAM</div><div class="big-value" id="ovRam">-</div><div class="small-value" id="ovRamLimit"></div></div>
-        </div>
-        <div class="grid">
-          <div class="span-8" id="ovChart"></div>
-          <article class="card span-4"><div class="card-head"><div class="card-title">Container</div><div class="card-meta">Docker</div></div>
-            <div class="card-body">
-              <div class="kv-row"><span>State</span><b id="kvState">-</b></div>
-              <div class="kv-row"><span>Server type</span><b id="kvType">-</b></div>
-              <div class="kv-row"><span>Version</span><b id="kvVersion">-</b></div>
-              <div class="kv-row"><span>Port</span><b id="kvPort">-</b></div>
-              <div class="kv-row"><span>Startup time</span><b id="kvStartup">-</b></div>
-              <div class="kv-row"><span>CPU limit</span><b id="kvCpu">-</b></div>
-              <div class="kv-row"><span>Memory limit</span><b id="kvMem">-</b></div>
-            </div></article>
-        </div>
-      </section>
+      <section class="page" id="page-overview"></section>
 
-      <section class="page" id="page-performance"><div id="perfRoot"></div></section>
+      <section class="page" id="page-performance"></section>
       <section class="page" id="page-players"><div id="playersRoot"></div></section>
 
       <section class="page" id="page-console"><div id="consoleRoot"></div></section>
@@ -114,6 +93,7 @@
 <script src="/core/ui/players-ui.js"></script>
 <script src="/core/ui/palette-ui.js"></script>
 <script src="/core/ui/format.js"></script>
+<script src="/core/ui/resources-ui.js"></script>
 <script src="/core/ui/automation-ui.js"></script>
 <script src="/core/ui/server-icon-ui.js"></script>
 <script src="/core/ui/charts-ui.js"></script>
@@ -200,25 +180,31 @@ function pageLoaded(page) {
 let lastReadyAt;
 function paintUptime(i) {
   const up = i.state === 'running' && i.startedAt;
-  $('ovType').textContent = up ? MeowFormat.duration((Date.now() - i.startedAt) / 1000) : '-';
-  $('ovPort').textContent = up ? new Date(i.startedAt).toLocaleString() : tr('not started');
+  OVERVIEW_PAGE.update({ uptime: { value: up ? MeowFormat.duration((Date.now() - i.startedAt) / 1000) : '-', started: up ? new Date(i.startedAt).toLocaleString() : tr('not started') } });
 }
 setInterval(() => { if (current) paintUptime(current); }, 1000);
 function paint(i) {
   const [cls, label] = stateOf(i);
   $('phasePill').className = 'phase-pill ' + cls; $('phaseText').textContent = tr(label);
   $('liveRow').classList.toggle('online', i.state === 'running'); $('connectionText').textContent = tr(i.state === 'running' ? 'live' : 'offline');
-  $('statusStrip').className = 'status-strip ' + cls; $('statusState').textContent = tr(label);
-  $('statusNote').textContent = i.state === 'running' ? '' : tr('Server is not running');
+  OVERVIEW_PAGE.update({ status: { phase: cls, label: tr(label), note: i.state === 'running' ? '' : tr('Server is not running') } });
   paintUptime(i);
   $('kvStartup').textContent = i.startupMs == null ? '-' : MeowFormat.startup(i.startupMs);
   if (i.readyAt && i.readyAt !== lastReadyAt) {
     if (lastReadyAt !== undefined && i.startupMs != null && Date.now() - i.readyAt < 30000) toast(tr('Server ready · startup {t}', { t: MeowFormat.startup(i.startupMs) }));
     lastReadyAt = i.readyAt;
   }
-  $('ovCpu').textContent = i.cpuUsage == null ? '-' : i.cpuUsage.toFixed(0) + '%'; $('ovCpuLimit').textContent = tr('limit') + ' ' + i.cpus + ' CPU';
-  const used = i.memUsage ? i.memUsage.split('/')[0].trim() : '-';
-  $('ovRam').textContent = used; $('ovRamLimit').textContent = tr('limit') + ' ' + (i.memoryMB + 768) + ' MB';
+  const memLimit = i.memoryMB + 768;
+  const cpuLimit = `${tr('limit')} ${i.cpus} CPU`, ramLimit = `${tr('limit')} ${memLimit} MB`;
+  const ramPct = i.memMB == null ? null : Math.min(100, (i.memMB / memLimit) * 100);
+  OVERVIEW_PAGE.update({
+    cpu: { text: i.cpuUsage == null ? '-' : i.cpuUsage.toFixed(0) + '%', detail: cpuLimit },
+    ram: { text: i.memUsage ? i.memUsage.split('/')[0].trim() : '-', detail: ramLimit },
+  });
+  PERF_PAGE.update({
+    cpu: { value: i.cpuUsage, cores: i.cpus, detail: cpuLimit },
+    ram: { value: ramPct, used: i.memMB == null ? null : i.memMB / 1024, total: memLimit / 1024, detail: ramLimit },
+  });
   $('kvState').textContent = tr(label); $('kvType').textContent = i.type.toLowerCase(); $('kvVersion').textContent = i.version; $('kvPort').textContent = i.port;
   $('kvCpu').textContent = i.cpus; $('kvMem').textContent = (i.memoryMB + 768) + ' MB';
   if (!document.activeElement || !['lMem', 'lCpu', 'lPort'].includes(document.activeElement.id)) { $('lMem').value = i.memoryMB; $('lCpu').value = i.cpus; $('lPort').value = i.port; }
@@ -333,6 +319,17 @@ $('verRollback').onclick = async () => {
   try { await api(`/api/instances/${current.id}/upgrade/rollback`, { method: 'POST', body: { restoreWorld: true } }); loadVersion(); } catch (err) { toast(err.message); }
 };
 
+// --- overview and performance pages ---
+const OVERVIEW_PAGE = MeowResources.mountOverview({
+  el: $('page-overview'), t: tr,
+  chart: '<div class="span-8" id="ovChart"></div>',
+  side: `<article class="card span-4"><div class="card-head"><div class="card-title">${tr('Container')}</div><div class="card-meta">Docker</div></div><div class="card-body">${
+    [['State', 'kvState'], ['Server type', 'kvType'], ['Version', 'kvVersion'], ['Port', 'kvPort'], ['Startup time', 'kvStartup'], ['CPU limit', 'kvCpu'], ['Memory limit', 'kvMem']]
+      .map(([label, id]) => `<div class="kv-row"><span>${tr(label)}</span><b id="${id}">-</b></div>`).join('')
+  }</div></article>`,
+});
+const PERF_PAGE = MeowResources.mountPerformance({ el: $('page-performance'), t: tr, cards: ['cpu', 'ram'], chart: '<div class="span-12" id="perfRoot"></div>' });
+
 // --- performance ---
 
 const metricPoints = async (range) => {
@@ -361,7 +358,7 @@ const PLAYERS = MeowPlayers.mount({
   act: (action, player, o) => api(`/api/instances/${ID}/players/action`, { method: 'POST', body: { action, player, value: o.value, reason: o.reason } }),
   isRunning: () => !!current && current.state === 'running',
   confirm: (title, message, label, danger) => confirmBox(title, message, label),
-  onUpdate: (p) => { onlineNames = p.list.map((x) => x.name); $('ovPlayers').textContent = `${p.online} / ${p.max ?? '-'}`; },
+  onUpdate: (p) => { onlineNames = p.list.map((x) => x.name); OVERVIEW_PAGE.update({ players: `${p.online} / ${p.max ?? '-'}` }); },
   toast, t: tr, esc,
   isVisible: () => pageActive('players'),
 });
@@ -469,7 +466,6 @@ const OVERVIEW = MeowCharts.mount({
   t: tr, esc,
   isVisible: () => pageActive('overview'),
 });
-$('ovPlayers').textContent = '-';
 async function pollPlayers() { try { PLAYERS.update(await api(`/api/instances/${ID}/players`)); } catch (_) {} }
 
 async function start() {

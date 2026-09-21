@@ -117,7 +117,7 @@ const startupInfo = (i) => startup.info(docker.containerName(i));
 const publicInstance = (i, st, stat, caps) => ({
   caps, id: i.id, name: i.name, type: i.type, version: i.version, port: i.port, memoryMB: i.memoryMB, cpus: i.cpus,
   state: st ? st.state : 'missing', health: st ? st.health : 'none',
-  cpuUsage: stat ? stat.cpu : null, memUsage: stat ? stat.mem : null,
+  cpuUsage: stat ? stat.cpu : null, memUsage: stat ? stat.mem : null, memMB: stat ? stat.memMB : null,
   startedAt: stat ? stat.startedAt || null : null, ...startupInfo(i),
 });
 

@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const harness = require('./helpers/harness');
+const harness = require('../test-support/harness');
 const docker = require('../panel/runtime/docker');
 
 const unix = { skip: process.platform === 'win32' ? 'needs symlinks' : false };

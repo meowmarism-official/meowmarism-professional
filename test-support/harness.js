@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((resolve) => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 
@@ -15,6 +15,7 @@ async function start() {
   const dir = path.join(home, 'meowmarism-pro', 'instances', 'inst1');
   fs.mkdirSync(path.join(dir, 'world'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'server.properties'), 'server-port=25565\nlevel-name=world\n');
+  fs.copyFileSync(path.join(REPO, 'panel', 'core', 'brand', 'server-icon.png'), path.join(dir, 'server-icon.png'));
   const inst = { id: 'abcd1234', name: 'inst1', type: 'VANILLA', version: '1.21.1', port: await freePort(), memoryMB: 1024, cpus: 1, dir, createdAt: 1 };
   fs.writeFileSync(path.join(home, '.meowmarism-pro-instances.json'), JSON.stringify([inst]));
   const { createUserStore } = require(path.join(REPO, 'panel', 'core', 'modules', 'users'));
