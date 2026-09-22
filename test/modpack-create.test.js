@@ -113,11 +113,13 @@ test('the final rename failing leaves nothing behind', opts, async () => {
   });
 });
 
-for (const [fail, message] of [['create', /fake create failure/], ['start', /fake start failure/], ['exited', /stopped while starting/]]) {
+for (const [fail, reason] of [['create', /fake create failure/], ['start', /fake start failure/], ['exited', /stopped while starting/]]) {
   test(`docker ${fail} failing rolls everything back`, opts, async () => {
     await withController({ FAKE_DOCKER_FAIL: fail }, async ({ create, dirOf, containers, listed, registry }) => {
       const log = await create({ modpack: { versionId: 'v1' } });
-      assert.match(log.error, message);
+      assert.match(log.error, /Installation completed, but the server could not start./);
+      assert.doesNotMatch(log.error, /broken|faulty/i, 'the pack is not blamed');
+      assert.ok(log.lines.some((l) => reason.test(l)), 'the reason is in the log');
       nothingLeft(dirOf, 'packone');
       assert.deepEqual(containers(), [], 'the container is removed');
       assert.ok(!(await listed('packone')));

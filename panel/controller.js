@@ -210,7 +210,7 @@ function createFromModpack(spec, body, versionId) {
   const phase = (label, progress) => { job.phase = label; if (progress != null) job.progress = Math.max(job.progress, Math.min(99, progress)); };
   const dir = path.join(INSTANCES_DIR, spec.name);
   const staging = `${dir}.creating`;
-  let packTmp = null, inst = null, renamed = false, registered = false;
+  let packTmp = null, inst = null, renamed = false, registered = false, started = false;
   (async () => {
     fs.mkdirSync(INSTANCES_DIR, { recursive: true });
     if (fs.existsSync(dir) || fs.existsSync(staging)) throw new Error('a folder with this name already exists');
@@ -244,6 +244,7 @@ function createFromModpack(spec, body, versionId) {
     const hours = Number(body.backupIntervalHours), keep = Number(body.maxBackups);
     if (Number.isFinite(hours) && hours >= 0.25 && hours <= 168 && Number.isInteger(keep) && keep >= 1 && keep <= 100) inst.backup = { backupIntervalHours: hours, maxBackups: keep };
     phase('Starting the server', 50);
+    started = true;
     const rt = runtimeFor(inst, OWNER);
     log('Creating the container (the first start downloads the Docker image)');
     await rt.removeContainer();
@@ -258,7 +259,10 @@ function createFromModpack(spec, body, versionId) {
     phase('Ready', 100);
     job.progress = 100; job.done = true;
   })().catch(async (err) => {
-    job.error = err.message || 'creation failed'; job.done = true;
+    // Once the files are in, a failure means the server could not start; the pack is not blamed.
+    if (started) { log(`Reason: ${err.message}`); job.error = 'Installation completed, but the server could not start. The modpack may contain files that are not compatible with a dedicated server.'; }
+    else job.error = err.message || 'creation failed';
+    job.done = true;
     if (inst) { await runtimeFor(inst, OWNER).removeContainer().catch(() => {}); forgetRuntime(inst.id); }
     fs.rmSync(staging, { recursive: true, force: true });
     if (renamed && !registered) fs.rmSync(dir, { recursive: true, force: true });
