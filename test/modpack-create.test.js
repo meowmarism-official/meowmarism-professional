@@ -191,6 +191,19 @@ test('mods Modrinth lists as client-only are left out, and a failing lookup does
   });
 });
 
+test('an early environment-skip message survives hundreds of noisy installer lines afterwards', () => {
+  const { pushJobLog, MAX_LINES, MAX_IMPORTANT_LINES } = require('../panel/lib/job-log');
+  const job = { lines: [] };
+  pushJobLog(job, 'Skipping CraftPresence-2.2.3+1.20.1.jar: client-only according to Modrinth');
+  pushJobLog(job, 'Using NEOFORGE 21.1.251 for Minecraft 1.20.1');
+  for (let i = 0; i < 500; i++) pushJobLog(job, `Patching net/minecraft/noisy/Line${i} 1/1`);
+  assert.equal(job.lines.length, MAX_LINES, 'the normal buffer stays capped');
+  assert.ok(!job.lines.some((l) => l.includes('CraftPresence')), 'the noisy lines really did push it out of the normal buffer');
+  assert.ok(job.important.includes('Skipping CraftPresence-2.2.3+1.20.1.jar: client-only according to Modrinth'), 'but it survives in the important log');
+  assert.ok(job.important.includes('Using NEOFORGE 21.1.251 for Minecraft 1.20.1'));
+  assert.ok(job.important.length <= MAX_IMPORTANT_LINES, `the important log is bounded too (saw ${job.important.length})`);
+});
+
 test('createArgs pins exactly one loader variable, and only when a loader version is known', () => {
   const owner = { uid: 1000, gid: 1000 };
   const args = (over) => docker.createArgs({ id: 'abcd1234', name: 'x', type: 'FABRIC', version: '1.21.1', port: 25565, memoryMB: 1024, cpus: 1, dir: '/tmp/x', ...over }, owner);

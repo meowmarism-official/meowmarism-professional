@@ -9,6 +9,7 @@ const { docker, stateCache, refreshStates, startPolling, runtimeFor, forget: for
 const backups = require('./lib/backups');
 const schedule = require('./lib/schedule');
 const { createModrinth, fetchImage } = require('./core/modules/modrinth');
+const { pushJobLog } = require('./lib/job-log');
 const { createMods } = require('./core/modules/mods');
 const { createFiles } = require('./core/modules/files');
 const { createProperties } = require('./core/modules/properties');
@@ -203,9 +204,9 @@ async function waitForReady(inst, rt, job, log, stillWanted = () => true) {
 
 // A modpack instance is built in <name>.creating and only becomes visible (folder, container, list entry) when the server is up.
 function createFromModpack(spec, body, versionId) {
-  const job = { lines: [], progress: 5, done: false, error: null, name: spec.name, phase: 'Reading modpack' };
+  const job = { lines: [], important: [], progress: 5, done: false, error: null, name: spec.name, phase: 'Reading modpack' };
   createJob = job;
-  const log = (line) => job.lines.push(line);
+  const log = (line) => pushJobLog(job, line);
   const phase = (label, progress) => { job.phase = label; if (progress != null) job.progress = Math.max(job.progress, Math.min(99, progress)); };
   const dir = path.join(INSTANCES_DIR, spec.name);
   const staging = `${dir}.creating`;
@@ -220,6 +221,7 @@ function createFromModpack(spec, body, versionId) {
     const { inspected } = await resolveEnvironments(inspectMrpack(file), { request: testHooks.modrinthRequest, log });
     const type = inspected.loader.toUpperCase();
     if (!MODPACK_TYPES.includes(type)) throw new Error(`This pack needs ${inspected.loader}, which PRO cannot run yet.`);
+    log(`Using ${type}${inspected.loaderVersion ? ` ${inspected.loaderVersion}` : ''} for Minecraft ${inspected.minecraft}`);
     phase('Downloading modpack files', 15);
     fs.mkdirSync(staging, { recursive: true });
     await installModpack({
@@ -270,9 +272,9 @@ function createFromModpack(spec, body, versionId) {
 
 let creatingNow = false;
 function createInstanceInBackground(inst) {
-  const job = { lines: [], progress: 5, done: false, error: null, name: inst.name };
+  const job = { lines: [], important: [], progress: 5, done: false, error: null, name: inst.name };
   createJob = job;
-  const log = (line) => job.lines.push(line);
+  const log = (line) => pushJobLog(job, line);
   (async () => {
     const rt = runtimeFor(inst, OWNER);
     log('Creating the container (the first start downloads the Docker image)');
@@ -362,7 +364,7 @@ async function handleApi(req, res, url) {
   }
   if (p === '/api/create-log' && method === 'GET') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed' });
-    return json(res, 200, createJob || { lines: [], progress: 0, done: true, error: null, name: null });
+    return json(res, 200, createJob || { lines: [], important: [], progress: 0, done: true, error: null, name: null });
   }
   if (p.startsWith('/api/modpacks/') && method === 'GET') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
