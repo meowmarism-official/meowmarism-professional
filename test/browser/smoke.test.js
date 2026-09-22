@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const path = require('path');
 const harness = require('../../test-support/harness');
 
 let puppeteer = null;
@@ -16,6 +17,7 @@ let browser;
 let page;
 const problems = [];
 const waitFor = (fn, arg) => page.waitForFunction(fn, { timeout: 15000 }, arg);
+const text = (selector) => page.$eval(selector, (el) => el.textContent.trim());
 
 test('open the instance page in a browser', opts, async () => {
   h = await harness.start();
@@ -49,6 +51,14 @@ test('navigating between pages works', opts, async () => {
     await page.click(`[data-page="${id}"]`);
     await waitFor((x) => document.getElementById(`page-${x}`).classList.contains('active'), id);
   }
+});
+
+test('the Update page shows the panel version and the core version', opts, async () => {
+  await page.goto(`${h.base}/update`, { waitUntil: 'networkidle2' });
+  const core = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'panel', 'core', 'core.json'), 'utf8'));
+  await waitFor((expected) => (document.getElementById('upd-core') || {}).textContent === expected, `v${core.version}`);
+  assert.match(await text('#upd-current'), /^v\d/);
+  assert.equal(await text('#upd-core-commit'), core.commit.slice(0, 8));
 });
 
 test('nothing went wrong in the browser', opts, async () => {
