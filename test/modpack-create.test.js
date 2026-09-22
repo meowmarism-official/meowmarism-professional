@@ -173,6 +173,24 @@ test('the container exists but the instance is not listed until it is healthy', 
   });
 });
 
+test('mods Modrinth lists as client-only are left out, and a failing lookup does not stop the install', async () => {
+  await withController({ MEOW_TEST_ENVIRONMENT: 'client_only' }, async ({ create, dirOf, h, cookie }) => {
+    const preview = (await h.json(cookie, 'GET', '/api/modpacks/versions/v1/preview')).body;
+    assert.equal(preview.environmentSkippedCount, 2);
+    const log = await create({ modpack: { versionId: 'v1' } });
+    assert.equal(log.error, null);
+    assert.ok(log.lines.some((l) => l.includes('Skipping a.jar: client-only according to Modrinth')));
+    assert.ok(!fs.existsSync(path.join(dirOf('packone'), 'mods', 'a.jar')));
+    assert.equal(fs.readFileSync(path.join(dirOf('packone'), 'config', 'a.cfg'), 'utf8'), 'x', 'overrides are not filtered');
+  });
+  await withController({ MEOW_TEST_ENVIRONMENT: 'fail' }, async ({ create, dirOf }) => {
+    const log = await create({ modpack: { versionId: 'v1' } });
+    assert.equal(log.error, null);
+    assert.ok(log.lines.some((l) => /Could not ask Modrinth about 2 mods/.test(l)));
+    assert.ok(fs.existsSync(path.join(dirOf('packone'), 'mods', 'a.jar')));
+  });
+});
+
 test('createArgs pins exactly one loader variable, and only when a loader version is known', () => {
   const owner = { uid: 1000, gid: 1000 };
   const args = (over) => docker.createArgs({ id: 'abcd1234', name: 'x', type: 'FABRIC', version: '1.21.1', port: 25565, memoryMB: 1024, cpus: 1, dir: '/tmp/x', ...over }, owner);

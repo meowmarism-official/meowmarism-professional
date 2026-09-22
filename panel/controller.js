@@ -21,13 +21,14 @@ const systemInfo = require('./core/modules/system-info');
 const events = require('./lib/events');
 const { createServerIcon } = require('./core/modules/server-icon');
 const { inspectMrpack } = require('./core/modules/modpack');
+const { resolveEnvironments } = require('./core/modules/modpack-environment');
 const { installModpack } = require('./core/modules/modpack-install');
 const { withServerPort } = require('./core/modules/properties');
 
 // Tests replace Modrinth and the file downloads through a module named in MEOW_TEST_HOOKS.
 const testHooks = process.env.MEOW_TEST_HOOKS ? require(process.env.MEOW_TEST_HOOKS) : {};
 const modpackApi = testHooks.modpackApi || require('./core/modules/modpack-api').createModpackApi();
-const modpackPreview = require('./core/modules/modpack-preview').createModpackPreview({ api: modpackApi, download: testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified });
+const modpackPreview = require('./core/modules/modpack-preview').createModpackPreview({ api: modpackApi, request: testHooks.modrinthRequest, download: testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified });
 const MODPACK_TYPES = ['FABRIC', 'FORGE', 'NEOFORGE'];
 const startup = require('./lib/startup');
 const schedulerCore = require('./core/modules/scheduler');
@@ -39,7 +40,7 @@ const { HOME, DATA_DIR, INSTANCES_DIR, users, sessions, instances, SESSION_MAX_A
 const PORT = Number(process.env.CONTROLLER_PORT) || 8090;
 const HOST = process.env.MEOWMARISM_HOST || '0.0.0.0';
 const SECURE_COOKIE = process.env.MEOWMARISM_SECURE_COOKIES === '1';
-const updater = createUpdater({ repo: 'meowmarism-official/meowmarism-professional', panelDir: __dirname, statePrefix: '.meowmarism-pro', probePath: '/' });
+const updater = createUpdater({ repo: 'meowmarism-official/meowmarism-professional', panelDir: __dirname, statePrefix: '.meowmarism-pro', probePath: '/', ...(testHooks.updaterFetchText ? { fetchText: testHooks.updaterFetchText } : {}) });
 try { updater.bootCheck(); } catch (_) {}
 const panelSettings = createPanelSettings({ file: path.join(HOME, '.meowmarism-pro-settings.json') });
 const { clientIp, isHttps } = panelSettings;
@@ -216,7 +217,7 @@ function createFromModpack(spec, body, versionId) {
     const version = await modpackApi.getVersion(versionId);
     const file = path.join(packTmp, 'pack.mrpack');
     await (testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified)(version.file.url, file, version.file.sha512, version.file.size);
-    const inspected = inspectMrpack(file);
+    const { inspected } = await resolveEnvironments(inspectMrpack(file), { request: testHooks.modrinthRequest, log });
     const type = inspected.loader.toUpperCase();
     if (!MODPACK_TYPES.includes(type)) throw new Error(`This pack needs ${inspected.loader}, which PRO cannot run yet.`);
     phase('Downloading modpack files', 15);
