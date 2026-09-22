@@ -194,8 +194,8 @@ const WIZ = MeowWizard.mount({
   t: tr, esc,
   createLabel: 'Create instance',
   steps: [
-    { title: 'Create instance', hint: 'Start from scratch or from a modpack.', html: '<div id="w-source"></div>', when: () => modpacksOn() },
-    { title: 'Create instance', hint: 'Name it and pick what it runs.', when: () => !modpacksOn() || SOURCE.mode() === 'blank',
+    { title: 'Create instance', hint: 'Start from scratch or from a modpack.', html: '<div id="w-source"></div>' },
+    { title: 'Create instance', hint: 'Name it and pick what it runs.', when: () => SOURCE.mode() === 'blank',
       html: `<div class="field"><label for="w-name">Instance name</label><input id="w-name" placeholder="survival"></div>
       <div class="field-row">
         <div class="field"><label for="w-type">Server type</label><select id="w-type"></select></div>
@@ -242,8 +242,7 @@ const WIZ = MeowWizard.mount({
   openHref: (name) => `/instance/${encodeURIComponent((cachedList.find((i) => i.name === name) || {}).id || '')}/overview`,
   onFinished: () => { $('w-name').value = ''; loadList().catch(() => {}); },
 });
-const modpacksOn = () => !!(system && system.modpacks);
-const modpackMode = () => modpacksOn() && SOURCE.mode() === 'modpack';
+const modpackMode = () => SOURCE.mode() === 'modpack';
 const SOURCE = MeowModpack.mountSource({ el: $('w-source'), t: tr, esc, onChange: () => { WIZ.refresh(); if (modpackMode()) PICKER.reset(); } });
 const PICKER = MeowModpack.mountPicker({
   el: $('w-modpack'), t: tr, esc,

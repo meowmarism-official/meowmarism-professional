@@ -10,7 +10,7 @@ const HOOKS = path.join(__dirname, '..', 'test-support', 'modpack-hooks.js');
 const opts = {};
 
 async function withController(env, fn) {
-  const h = await harness.start({ hooks: HOOKS, fakeDocker: true, env: { MEOW_EXPERIMENTAL_MODPACKS: '1', ...env } });
+  const h = await harness.start({ hooks: HOOKS, fakeDocker: true, env });
   try {
     const { cookie } = await h.login();
     const instancesRoot = path.join(h.home, 'meowmarism-pro', 'instances');
@@ -171,15 +171,6 @@ test('the container exists but the instance is not listed until it is healthy', 
     assert.equal((await finish()).error, null);
     assert.ok(await listed('packone'));
   });
-});
-
-test('modpack requests are refused when the feature is off', opts, async () => {
-  const h = await harness.start({ hooks: HOOKS, fakeDocker: true });
-  try {
-    const { cookie } = await h.login();
-    const r = await h.json(cookie, 'POST', '/api/instances', { name: 'packone', port: 25610, memoryMB: 2048, cpus: 1, modpack: { versionId: 'v1' } });
-    assert.equal(r.status, 400);
-  } finally { await h.stop(); }
 });
 
 test('createArgs pins exactly one loader variable, and only when a loader version is known', () => {

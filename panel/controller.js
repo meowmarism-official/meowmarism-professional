@@ -26,8 +26,6 @@ const { withServerPort } = require('./core/modules/properties');
 
 // Tests replace Modrinth and the file downloads through a module named in MEOW_TEST_HOOKS.
 const testHooks = process.env.MEOW_TEST_HOOKS ? require(process.env.MEOW_TEST_HOOKS) : {};
-// Modpack picking is unfinished and stays hidden unless switched on.
-const MODPACKS_ENABLED = process.env.MEOW_EXPERIMENTAL_MODPACKS === '1';
 const modpackApi = testHooks.modpackApi || require('./core/modules/modpack-api').createModpackApi();
 const modpackPreview = require('./core/modules/modpack-preview').createModpackPreview({ api: modpackApi, download: testHooks.modpackDownload || require('./core/modules/modrinth').downloadVerified });
 const MODPACK_TYPES = ['FABRIC', 'FORGE', 'NEOFORGE'];
@@ -355,7 +353,7 @@ async function handleApi(req, res, url) {
     return json(res, 200, systemInfo.collect({ dir: DATA_DIR, extra: { docker: d.ok ? `${d.version || 'running'}` : `not reachable` } }));
   }
   if (p === '/api/system' && method === 'GET') {
-    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, modpacks: MODPACKS_ENABLED, types: TYPES });
+    return json(res, 200, { user: session.username, role: me.role, panel: { users: hasPanelCap(me, 'users'), create: hasPanelCap(me, 'create'), update: hasPanelCap(me, 'update') }, docker: await docker.info(), hostMemMB: HOST_MEM_MB, hostCpus: HOST_CPUS, types: TYPES });
   }
   if (p === '/api/instances' && method === 'GET') {
     const withStats = url.searchParams.get('stats') === '1';
@@ -365,7 +363,7 @@ async function handleApi(req, res, url) {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed' });
     return json(res, 200, createJob || { lines: [], progress: 0, done: true, error: null, name: null });
   }
-  if (MODPACKS_ENABLED && p.startsWith('/api/modpacks/') && method === 'GET') {
+  if (p.startsWith('/api/modpacks/') && method === 'GET') {
     if (!hasPanelCap(me, 'create')) return json(res, 403, { error: 'not allowed to create instances' });
     const answer = async (promise) => { try { return json(res, 200, await promise); } catch (err) { return json(res, err.status || 502, { error: err.message }); } };
     const preview = /^\/api\/modpacks\/versions\/([\w-]+)\/preview$/.exec(p);
@@ -383,7 +381,7 @@ async function handleApi(req, res, url) {
     try {
     const body = await readBody(req);
     const versionId = body.modpack ? String(body.modpack.versionId || '') : '';
-    if (body.modpack && (!MODPACKS_ENABLED || !/^[\w-]{1,64}$/.test(versionId))) return json(res, 400, { error: 'invalid modpack' });
+    if (body.modpack && !/^[\w-]{1,64}$/.test(versionId)) return json(res, 400, { error: 'invalid modpack' });
     const { spec, error } = validateSpec(body, null, !!body.modpack);
     if (error) return json(res, 400, { error });
     const list = instances.list();

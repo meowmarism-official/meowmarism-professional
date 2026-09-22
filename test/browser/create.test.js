@@ -39,17 +39,20 @@ async function close() {
   browser = h = null;
 }
 
-test('without modpack support the dialog starts at the blank server step', opts, async () => {
+test('the dialog starts at the source choice and the blank server flow is intact', opts, async () => {
   await open({});
-  await waitFor(() => document.getElementById('wizardBack').classList.contains('open'));
-  assert.equal(await page.$eval('#step2', (el) => el.style.display !== 'none'), true);
-  assert.equal(await page.$eval('#step1', (el) => el.style.display !== 'none'), false);
+  await waitFor(() => document.querySelector('#w-source .source-card'));
+  assert.ok(await page.$eval('#step1', (el) => el.style.display !== 'none'));
+  await page.click('#w-next1');
+  assert.ok(await page.$eval('#step2', (el) => el.style.display !== 'none'), 'Blank server is the default and leads to the blank step');
+  await page.click('#w-back2');
+  assert.ok(await page.$eval('#step1', (el) => el.style.display !== 'none'));
   assert.deepEqual(problems, []);
   await close();
 });
 
 test('creating from a modpack: search, pick, memory, phases, Ready, open the instance', opts, async () => {
-  await open({ MEOW_EXPERIMENTAL_MODPACKS: '1' });
+  await open({});
   const hold = path.join(h.home, '.hold-create');
   fs.writeFileSync(hold, '');
   const instancesRoot = path.join(h.home, 'meowmarism-pro', 'instances');
